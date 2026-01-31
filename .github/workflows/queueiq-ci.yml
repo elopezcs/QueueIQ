@@ -1,0 +1,30 @@
+name: QueueIQ CI-CD
+
+on:
+  push:
+    branches: [ dev, preprod, main ]
+  pull_request:
+    branches: [ dev, preprod, main ]
+
+jobs:
+  test-and-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest ruff # Tools for testing and cleaning code
+
+      - name: Lint with Ruff
+        run: ruff check . # Checks for messy code
+
+      - name: Run Tests
+        run: pytest # Ensures your ML logic isn't broken
