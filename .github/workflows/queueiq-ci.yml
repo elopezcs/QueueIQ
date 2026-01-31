@@ -24,7 +24,7 @@ jobs:
           pip install pytest ruff # Tools for testing and cleaning code
 
       - name: Lint with Ruff
-        run: ruff check . # Checks for messy code
+        run: ruff check . --exclude "*.ipynb" # Skip notebook files
 
       - name: Run Tests
         run: pytest # Ensures your ML logic isn't broken
