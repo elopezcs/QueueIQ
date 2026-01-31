@@ -21,6 +21,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
+          if [[ "$RUNNER_OS" == "Windows" ]]; then pip install pywin32==311; fi
           pip install pytest ruff # Tools for testing and cleaning code
 
       - name: Lint with Ruff
