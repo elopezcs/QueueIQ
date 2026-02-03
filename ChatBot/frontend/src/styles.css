@@ -1,0 +1,197 @@
+:root {
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  color: #111;
+  background: #f6f7fb;
+}
+
+.container {
+  max-width: 1100px;
+  margin: 24px auto;
+  padding: 0 16px;
+}
+
+.header h1 {
+  margin: 0 0 4px 0;
+}
+
+.subtitle {
+  margin: 0 0 16px 0;
+  color: #444;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+@media (max-width: 900px) {
+  .grid { grid-template-columns: 1fr; }
+}
+
+.panel {
+  background: #fff;
+  border: 1px solid #e7e7ee;
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.field label {
+  display: block;
+  font-size: 14px;
+  color: #444;
+  margin-bottom: 6px;
+}
+
+select, input {
+  width: 100%;
+  border: 1px solid #d7d7e2;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.btn {
+  border: 1px solid #0b5cff;
+  background: #0b5cff;
+  color: white;
+  padding: 10px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.btn.secondary {
+  border: 1px solid #c9c9d6;
+  background: #fff;
+  color: #111;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.disclaimer {
+  margin-top: 10px;
+  font-size: 13px;
+  color: #555;
+  line-height: 1.4;
+}
+
+.muted {
+  color: #666;
+}
+
+.small {
+  font-size: 12px;
+}
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  height: 520px;
+}
+
+.chatHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.chatList {
+  flex: 1;
+  border: 1px solid #eee;
+  border-radius: 10px;
+  padding: 10px;
+  overflow: auto;
+  background: #fbfbfe;
+}
+
+.bubble {
+  border-radius: 12px;
+  padding: 10px;
+  margin-bottom: 10px;
+  border: 1px solid #ededf4;
+}
+
+.bubble .role {
+  font-size: 11px;
+  color: #777;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.bubble.user {
+  background: #ffffff;
+}
+
+.bubble.assistant {
+  background: #f2f6ff;
+}
+
+.chatInput {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.chatInput input {
+  flex: 1;
+}
+
+.card {
+  border: 1px solid #ededf4;
+  border-radius: 12px;
+  padding: 12px;
+  background: #fff;
+}
+
+.kpiRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.kpi {
+  border: 1px solid #f0f0f5;
+  border-radius: 12px;
+  padding: 10px;
+  background: #fafafe;
+}
+
+.kpiLabel {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 6px;
+}
+
+.kpiValue {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.section {
+  margin-top: 10px;
+}
+
+.toast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  background: #111;
+  color: #fff;
+  padding: 10px 12px;
+  border-radius: 10px;
+  opacity: 0.9;
+}
