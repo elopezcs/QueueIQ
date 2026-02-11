@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { getClinics, startChat, chatTurn, endChat } from "./api.js";
 import ClinicSelector from "./components/ClinicSelector.jsx";
 import ChatWidget from "./components/ChatWidget.jsx";
+import ChatbotModal from "./components/ChatbotModal.jsx";
+import FloatingButton from "./components/FloatingButton.jsx";
 import ResultsView from "./components/ResultsView.jsx";
 
 export default function App() {
@@ -16,6 +18,7 @@ export default function App() {
   const [done, setDone] = useState(false);
 
   const [results, setResults] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const hasSession = useMemo(() => !!sessionId, [sessionId]);
 
   useEffect(() => {
@@ -31,6 +34,7 @@ export default function App() {
     setResults(null);
     setMessages([]);
     setDone(false);
+    setIsModalOpen(true);
 
     try {
       const res = await startChat(clinicId);
@@ -65,6 +69,7 @@ export default function App() {
     try {
       const res = await endChat(sessionId);
       setResults(res);
+      setIsModalOpen(false);
     } finally {
       setLoading(false);
     }
@@ -77,6 +82,25 @@ export default function App() {
     setProgress({ turn_count: 0, max_turns: 10 });
     setDone(false);
     setResults(null);
+  }
+
+  async function handleResetAndRestart() {
+    setLoading(true);
+    setResults(null);
+    setMessages([]);
+    setDone(false);
+    setDisclaimers([]);
+    setProgress({ turn_count: 0, max_turns: 10 });
+
+    try {
+      const res = await startChat(clinicId);
+      setSessionId(res.session_id);
+      setDisclaimers(res.disclaimers || []);
+      setMessages([{ role: "assistant", content: res.assistant_message }]);
+      setProgress({ turn_count: 0, max_turns: 10 });
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -120,19 +144,31 @@ export default function App() {
 
       <section className="grid">
         <div className="panel">
-          <ChatWidget
-            messages={messages}
-            onSend={handleSend}
-            disabled={!hasSession || loading || !!results}
-            done={done}
-            progress={progress}
-          />
-        </div>
-
-        <div className="panel">
           <ResultsView results={results} />
         </div>
       </section>
+
+      {/* Floating Button */}
+      <FloatingButton 
+        onClick={() => setIsModalOpen(true)} 
+        onStartSession={handleStart}
+        isActive={isModalOpen} 
+        hasSession={hasSession}
+        disabled={!clinicId || loading}
+      />
+
+      {/* Chatbot Modal */}
+      <ChatbotModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        messages={messages}
+        onSend={handleSend}
+        disabled={!hasSession || loading || !!results}
+        done={done}
+        progress={progress}
+        onFinish={handleFinish}
+        onReset={handleResetAndRestart}
+      />
 
       {loading && <div className="toast">Working…</div>}
     </div>

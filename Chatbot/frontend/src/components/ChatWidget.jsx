@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 
-export default function ChatWidget({ messages, onSend, disabled, done, progress }) {
+export default function ChatWidget({ messages, onSend, disabled, done, progress, onFinish, onReset }) {
   const [text, setText] = useState("");
   const listRef = useRef(null);
 
@@ -41,18 +41,32 @@ export default function ChatWidget({ messages, onSend, disabled, done, progress 
         ))}
       </div>
 
-      <form className="chatInput" onSubmit={submit}>
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder={disabled ? "Chat disabled" : "Type your message..."}
-          disabled={disabled}
-          maxLength={2000}
-        />
-        <button className="btn" disabled={disabled}>
-          Send
-        </button>
-      </form>
+      <div className="chatInput">
+        {!done ? (
+          <form onSubmit={submit} style={{ display: "flex", gap: "8px", width: "100%" }}>
+            <input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder={disabled ? "Chat disabled" : "Type your message..."}
+              disabled={disabled}
+              maxLength={2000}
+              style={{ flex: 1 }}
+            />
+            <button className="btn" disabled={disabled}>
+              Send
+            </button>
+          </form>
+        ) : (
+          <div style={{ display: "flex", gap: "8px", width: "100%" }}>
+            <button className="btn" onClick={onFinish} style={{ flex: 1 }}>
+              Finish
+            </button>
+            <button className="btn secondary" onClick={onReset} style={{ flex: 1 }}>
+              Reset
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
