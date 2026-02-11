@@ -1,10 +1,19 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { getClinics, startChat, chatTurn, endChat } from "./api.js";
+import Navigation from "./components/Navigation.jsx";
 import ClinicSelector from "./components/ClinicSelector.jsx";
 import ChatWidget from "./components/ChatWidget.jsx";
+import ChatbotModal from "./components/ChatbotModal.jsx";
+import FloatingButton from "./components/FloatingButton.jsx";
 import ResultsView from "./components/ResultsView.jsx";
+import HomePage from "./pages/HomePage.jsx";
+import AboutPage from "./pages/AboutPage.jsx";
+import TeamPage from "./pages/TeamPage.jsx";
+import PrivacyPage from "./pages/PrivacyPage.jsx";
+import ContactPage from "./pages/ContactPage.jsx";
 
 export default function App() {
+  const [currentPage, setCurrentPage] = useState("home");
   const [clinics, setClinics] = useState([]);
   const [clinicId, setClinicId] = useState("");
   const [loading, setLoading] = useState(false);
@@ -16,6 +25,7 @@ export default function App() {
   const [done, setDone] = useState(false);
 
   const [results, setResults] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const hasSession = useMemo(() => !!sessionId, [sessionId]);
 
   useEffect(() => {
@@ -31,6 +41,7 @@ export default function App() {
     setResults(null);
     setMessages([]);
     setDone(false);
+    setIsModalOpen(true);
 
     try {
       const res = await startChat(clinicId);
@@ -65,6 +76,7 @@ export default function App() {
     try {
       const res = await endChat(sessionId);
       setResults(res);
+      setIsModalOpen(false);
     } finally {
       setLoading(false);
     }
@@ -79,62 +91,115 @@ export default function App() {
     setResults(null);
   }
 
+  async function handleResetAndRestart() {
+    setLoading(true);
+    setResults(null);
+    setMessages([]);
+    setDone(false);
+    setDisclaimers([]);
+    setProgress({ turn_count: 0, max_turns: 10 });
+
+    try {
+      const res = await startChat(clinicId);
+      setSessionId(res.session_id);
+      setDisclaimers(res.disclaimers || []);
+      setMessages([{ role: "assistant", content: res.assistant_message }]);
+      setProgress({ turn_count: 0, max_turns: 10 });
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <div className="container">
-      <header className="header">
-        <h1>QueueIQ ArrivalSignal</h1>
-        <p className="subtitle">Pre-arrival intake for operational queue planning (non-diagnostic)</p>
-      </header>
+    <div className="app">
+      <Navigation 
+        currentPage={currentPage} 
+        setCurrentPage={setCurrentPage}
+        onHomeClick={() => {
+          setCurrentPage("home");
+          handleReset();
+        }}
+      />
 
-      <section className="panel">
-        <ClinicSelector
-          clinics={clinics}
-          clinicId={clinicId}
-          setClinicId={setClinicId}
-          disabled={hasSession}
-        />
+      {/* Home/Chat Page */}
+      {currentPage === "home" ? (
+        <div className="container">
+          <header className="header">
+            <h1>QueueIQ ArrivalSignal</h1>
+            <p className="subtitle">Pre-arrival intake for operational queue planning (non-diagnostic)</p>
+          </header>
 
-        <div className="row">
-          {!hasSession ? (
-            <button className="btn" onClick={handleStart} disabled={!clinicId || loading}>
-              Start intake
-            </button>
-          ) : (
-            <>
-              <button className="btn" onClick={handleFinish} disabled={loading}>
-                Finish
-              </button>
-              <button className="btn secondary" onClick={handleReset} disabled={loading}>
-                Reset
-              </button>
-            </>
-          )}
-        </div>
+          <section className="panel">
+            <ClinicSelector
+              clinics={clinics}
+              clinicId={clinicId}
+              setClinicId={setClinicId}
+              disabled={hasSession}
+            />
 
-        <div className="disclaimer">
-          {disclaimers.map((d, idx) => (
-            <div key={idx}>• {d}</div>
-          ))}
-        </div>
-      </section>
+            <div className="row">
+              {!hasSession ? (
+                <button className="btn" onClick={handleStart} disabled={!clinicId || loading}>
+                  Start intake
+                </button>
+              ) : (
+                <>
+                  <button className="btn" onClick={handleFinish} disabled={loading}>
+                    Finish
+                  </button>
+                  <button className="btn secondary" onClick={handleReset} disabled={loading}>
+                    Reset
+                  </button>
+                </>
+              )}
+            </div>
 
-      <section className="grid">
-        <div className="panel">
-          <ChatWidget
+            <div className="disclaimer">
+              {disclaimers.map((d, idx) => (
+                <div key={idx}>• {d}</div>
+              ))}
+            </div>
+          </section>
+
+          <section className="grid">
+            <div className="panel">
+              <ResultsView results={results} />
+            </div>
+          </section>
+
+          {/* Floating Button */}
+          <FloatingButton 
+            onClick={() => setIsModalOpen(true)} 
+            onStartSession={handleStart}
+            isActive={isModalOpen} 
+            hasSession={hasSession}
+            disabled={!clinicId || loading}
+          />
+
+          {/* Chatbot Modal */}
+          <ChatbotModal
+            isOpen={isModalOpen}
+            onClose={() => setIsModalOpen(false)}
             messages={messages}
             onSend={handleSend}
             disabled={!hasSession || loading || !!results}
             done={done}
             progress={progress}
+            onFinish={handleFinish}
+            onReset={handleResetAndRestart}
           />
-        </div>
 
-        <div className="panel">
-          <ResultsView results={results} />
+          {loading && <div className="toast">Working…</div>}
         </div>
-      </section>
-
-      {loading && <div className="toast">Working…</div>}
+      ) : currentPage === "about" ? (
+        <AboutPage />
+      ) : currentPage === "team" ? (
+        <TeamPage />
+      ) : currentPage === "privacy" ? (
+        <PrivacyPage />
+      ) : currentPage === "contact" ? (
+        <ContactPage />
+      ) : null}
     </div>
   );
 }
