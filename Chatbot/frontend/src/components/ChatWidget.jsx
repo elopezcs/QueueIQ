@@ -58,11 +58,11 @@ export default function ChatWidget({ messages, onSend, disabled, done, progress,
           </form>
         ) : (
           <div style={{ display: "flex", gap: "8px", width: "100%" }}>
-            <button className="btn" onClick={onFinish} style={{ flex: 1 }}>
-              Finish
-            </button>
             <button className="btn secondary" onClick={onReset} style={{ flex: 1 }}>
               Reset
+            </button>
+            <button className="btn" onClick={onFinish} style={{ flex: 1 }}>
+              Finish
             </button>
           </div>
         )}
