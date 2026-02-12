@@ -182,7 +182,7 @@ export default function App() {
             onClose={() => setIsModalOpen(false)}
             messages={messages}
             onSend={handleSend}
-            disabled={!hasSession || loading || !!results}
+            disabled={!hasSession || loading}
             done={done}
             progress={progress}
             onFinish={handleFinish}
