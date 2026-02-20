@@ -1,4 +1,5 @@
 import React from "react";
+import CircularCountdown from "./CircularCountdown";
 
 export default function ResultsView({ results }) {
   if (!results) {
@@ -15,7 +16,7 @@ export default function ResultsView({ results }) {
       <h2>Results</h2>
 
       <div className="card">
-        <div className="kpiRow">
+        <div className="kpiRow-4">
           <div className="kpi">
             <div className="kpiLabel">Urgency band</div>
             <div className="kpiValue">{results.urgency_band}</div>
@@ -24,16 +25,17 @@ export default function ResultsView({ results }) {
             <div className="kpiLabel">Visit category</div>
             <div className="kpiValue">{results.visit_category}</div>
           </div>
-        </div>
-
-        <div className="kpiRow">
-          <div className="kpi">
+          <div className="kpi" style={{ visibility: 'hidden' }}>
             <div className="kpiLabel">Wait estimate (P50)</div>
-            <div className="kpiValue">{results.wait_p50_minutes} min</div>
+            <div className="kpiValue">
+              <CircularCountdown minutes={results.wait_p50_minutes} label="P50" />
+            </div>
           </div>
           <div className="kpi">
             <div className="kpiLabel">Wait estimate (P90)</div>
-            <div className="kpiValue">{results.wait_p90_minutes} min</div>
+            <div className="kpiValue">
+              <CircularCountdown minutes={results.wait_p90_minutes} label="P90" />
+            </div>
           </div>
         </div>
 
