@@ -16,22 +16,22 @@ export default function ResultsView({ results }) {
       <h2>Results</h2>
 
       <div className="card">
-        <div className="kpiRow-4">
-          <div className="kpi">
+        <div className="row">
+          <div className="col-6 col-md-4 kpi">
             <div className="kpiLabel">Urgency band</div>
             <div className="kpiValue">{results.urgency_band}</div>
           </div>
-          <div className="kpi">
+          <div className="col-6 col-md-4 kpi">
             <div className="kpiLabel">Visit category</div>
             <div className="kpiValue">{results.visit_category}</div>
           </div>
-          <div className="kpi" style={{ visibility: 'hidden' }}>
+          <div className="col-6 col-md-4 kpi" style={{ display: 'none' }}>
             <div className="kpiLabel">Wait estimate (P50)</div>
             <div className="kpiValue">
               <CircularCountdown minutes={results.wait_p50_minutes} label="P50" />
             </div>
           </div>
-          <div className="kpi">
+          <div className="col-6 col-md-4 kpi">
             <div className="kpiLabel">Wait estimate (P90)</div>
             <div className="kpiValue">
               <CircularCountdown minutes={results.wait_p90_minutes} label="P90" />
