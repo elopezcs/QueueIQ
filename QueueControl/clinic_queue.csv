@@ -1,0 +1,11 @@
+clinic_id,id,arrival_time,acuity,est_duration
+Downtown-Clinic,7301,12:51:17,4,10
+Uptown-Clinic,4395,12:51:11,2,40
+Uptown-Clinic,9449,12:50:53,3,20
+Uptown-Clinic,9477,12:51:05,3,20
+Uptown-Clinic,3825,12:50:51,4,10
+Uptown-Clinic,8068,12:50:35,5,5
+Uptown-Clinic,6275,12:51:15,5,5
+Westside-Clinic,6260,12:51:31,2,40
+Westside-Clinic,6271,12:51:11,4,10
+Uptown-Clinic,8700,12:51:33,4,10
