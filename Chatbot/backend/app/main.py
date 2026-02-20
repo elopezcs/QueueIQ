@@ -14,7 +14,7 @@ def create_app() -> FastAPI:
     configure_logging()
 
     app = FastAPI(
-        title="QueueIQ ArrivalSignal API",
+        title="QueueIQ Chatbot API",
         version="0.1.0",
     )
 
