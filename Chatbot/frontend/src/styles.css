@@ -1,3 +1,33 @@
+.kpiRow-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 10px;
+}
+.kpi {
+  min-height: 110px;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background: #fafafe;
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+.circular-countdown {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 180px;
+  width: 180px;
+  margin: 0 auto;
+}
+.circular-countdown svg {
+  display: block;
+  height: 180px;
+  width: 180px;
+}
 :root {
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   color: #111;
@@ -723,14 +753,24 @@ select, input {
 }
 
 .kpiLabel {
-  font-size: 12px;
+  font-size: 14px;
   color: #666;
   margin-bottom: 6px;
+  text-transform: uppercase;
+  text-align: center;
+  letter-spacing: 1px;
+  font-weight: 600;
+  margin-top: 18px;
 }
 
 .kpiValue {
-  font-size: 18px;
+  font-size: 32px;
   font-weight: 700;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100px;
 }
 
 .section {
