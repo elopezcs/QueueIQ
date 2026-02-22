@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
+DATA_FILE_FOLDER = "data/synthetic_data/"
+
 # --- CONFIGURATION ---
 OUTPUT_FILE = "clinic_historical_data.csv"
 CLINIC_IDS = ["Downtown-Clinic", "Uptown-Clinic", "Westside-Clinic"]
@@ -129,6 +131,7 @@ def generate_data():
     ]
     df_final = df_final[cols_order]
     
+    OUTPUT_FILE = DATA_FILE_FOLDER + "training_data.csv"
     df_final.to_csv(OUTPUT_FILE, index=False)
     print(f"✅ Success! Saved {len(df_final)} rows to {OUTPUT_FILE}")
     print("\nSample Data:")
