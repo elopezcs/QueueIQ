@@ -10,6 +10,18 @@ export default function ChatWidget({ messages, onSend, disabled, done, progress,
     listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [messages]);
 
+  // Re-focus input when loading finishes (i.e., when the bot replies)
+  useEffect(() => {
+    if (!loading && !done && inputRef.current) {
+      // Small timeout to ensure React has finished rendering the enabled input
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+        }
+      }, 10);
+    }
+  }, [loading, done]);
+
   function submit(e) {
     e.preventDefault();
     const msg = text.trim();

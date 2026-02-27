@@ -947,6 +947,77 @@ select, input {
   margin-bottom: 0;
 }
 
+.explanation-box {
+  background: #f8fafa;
+  border-left: 4px solid var(--color-azure);
+  padding: 16px 20px;
+  border-radius: 8px;
+  margin-top: 24px;
+}
+
+.explanation-content p {
+  margin: 0 0 12px 0;
+  line-height: 1.6;
+  color: #444;
+  font-size: 15px;
+}
+
+.explanation-content p:last-child {
+  margin-bottom: 0;
+}
+
+.disclaimer-box {
+  margin-top: 24px;
+  font-size: 14px;
+  color: #856404;
+  line-height: 1.6;
+  background: #fff3cd;
+  padding: 16px 20px;
+  border-radius: 12px;
+  border-left: 6px solid #ffc107;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+}
+
+.disclaimer-title {
+  font-weight: 700;
+  font-size: 16px;
+  margin-bottom: 4px;
+}
+
+.disclaimer-subtitle {
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.disclaimer-list div {
+  margin-bottom: 6px;
+}
+
+.disclaimer-list div:last-child {
+  margin-bottom: 0;
+}
+
+.wait-time-value {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.wait-est {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-azure);
+}
+
+.wait-mins {
+  font-size: 14px;
+  color: #666;
+  font-weight: 500;
+}
+
 .muted {
   color: var(--color-text-muted);
 }
