@@ -11,31 +11,39 @@ export default function ResultsView({ results }) {
     );
   }
 
+  // Helper function to capitalize the first letter of a string
+  const capitalizeFirstLetter = (string) => {
+    if (!string) return string;
+    return string.charAt(0).toUpperCase() + string.slice(1);
+  };
+
   return (
     <div>
       <h2>Results</h2>
 
       <div className="card">
-        <div className="row">
-          <div className="col-6 col-md-4 kpi">
+        <div className="kpiRow-4">
+          <div className="kpi kpi-urgency">
             <div className="kpiLabel">Urgency band</div>
-            <div className="kpiValue">{results.urgency_band}</div>
+            <div className="kpiValue">{capitalizeFirstLetter(results.urgency_band)}</div>
           </div>
-          <div className="col-6 col-md-4 kpi">
+          <div className="kpi kpi-category">
             <div className="kpiLabel">Visit category</div>
-            <div className="kpiValue">{results.visit_category}</div>
+            <div className="kpiValue">{capitalizeFirstLetter(results.visit_category)}</div>
           </div>
-          <div className="col-6 col-md-4 kpi" style={{ display: 'none' }}>
-            <div className="kpiLabel">Wait estimate (P50)</div>
+          <div className="kpi kpi-p50">
+            <div className="kpiLabel">Typical Wait (P50)</div>
             <div className="kpiValue">
-              <CircularCountdown minutes={results.wait_p50_minutes} label="P50" />
+              <CircularCountdown minutes={results.wait_p50_minutes} label="P50" color="#03989e" />
             </div>
+            <div className="kpiDescription">Half of patients wait less than this time.</div>
           </div>
-          <div className="col-6 col-md-4 kpi">
-            <div className="kpiLabel">Wait estimate (P90)</div>
+          <div className="kpi kpi-p90">
+            <div className="kpiLabel">Longer Wait (P90)</div>
             <div className="kpiValue">
-              <CircularCountdown minutes={results.wait_p90_minutes} label="P90" />
+              <CircularCountdown minutes={results.wait_p90_minutes} label="P90" color="#ff7b54" />
             </div>
+            <div className="kpiDescription">9 out of 10 patients are seen before this time.</div>
           </div>
         </div>
 

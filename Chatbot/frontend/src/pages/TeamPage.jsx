@@ -3,54 +3,58 @@ import React from "react";
 export default function TeamPage() {
   const team = [
     {
-      name: "Dr. Sarah Johnson",
-      role: "Chief Executive Officer",
-      bio: "Healthcare innovator with 15+ years of experience",
-      color: "#FFCCBB"
+      name: "Edwin Lopez Castañeda",
+      role: "AI & Software Developer",
+      bio: "Student at Conestoga College. Passionate about building AI-driven healthcare solutions.",
+      color: "var(--color-peach)",
+      email: "elopezcastaneda@conestogac.on.ca",
+      phone: "+1 (555) 123-4567",
+      linkedin: "#",
+      github: "#"
     },
     {
-      name: "Michael Chen",
-      role: "Chief Technology Officer",
-      bio: "AI and machine learning expert",
-      color: "#6EB5C0"
+      name: "Jatinder Pal Singh",
+      role: "AI & Software Developer",
+      bio: "Student at Conestoga College. Focused on machine learning and backend architecture.",
+      color: "var(--color-water)",
+      email: "jsingh@conestogac.on.ca",
+      phone: "+1 (555) 234-5678",
+      linkedin: "#",
+      github: "#"
     },
     {
-      name: "Emily Rodriguez",
-      role: "Head of Operations",
-      bio: "Operations specialist with expertise in healthcare systems",
-      color: "#006C84"
+      name: "Rohit Krishnamurthy Iyer",
+      role: "AI & Software Developer",
+      bio: "Student at Conestoga College. Specializing in full-stack development and data engineering.",
+      color: "var(--color-azure)",
+      email: "riyer@conestogac.on.ca",
+      phone: "+1 (555) 345-6789",
+      linkedin: "#",
+      github: "#"
     },
     {
-      name: "David Thompson",
-      role: "Lead Designer",
-      bio: "UX/UI designer focused on healthcare applications",
-      color: "#E2E8E4"
-    },
-    {
-      name: "Lisa Wang",
-      role: "Head of Customer Success",
-      bio: "Building lasting relationships with our clients",
-      color: "#FFCCBB"
-    },
-    {
-      name: "James Martinez",
-      role: "Senior Software Engineer",
-      bio: "Full-stack developer with healthcare industry experience",
-      color: "#6EB5C0"
+      name: "Mostafa Allahmoradi",
+      role: "AI & Software Developer",
+      bio: "Student at Conestoga College. Expert in predictive modeling and system integration.",
+      color: "var(--color-air)",
+      email: "mallahmoradi@conestogac.on.ca",
+      phone: "+1 (555) 456-7890",
+      linkedin: "#",
+      github: "#"
     }
   ];
 
   return (
     <div className="page-container">
-      <div className="page-header" style={{ backgroundColor: "#6EB5C0" }}>
+      <div className="page-header">
         <h1>Our Team</h1>
-        <p>Meet the talented individuals behind QueueIQ</p>
+        <p>Meet the creators of the QueueIQ AI project</p>
       </div>
 
       <section className="panel">
         <p className="team-intro">
-          Our diverse team brings together expertise from healthcare, technology, and operations 
-          to create innovative solutions that make a real difference in healthcare delivery.
+          We are a team of dedicated students from Conestoga College who built this AI-based project 
+          to revolutionize healthcare queue management and improve patient experiences.
         </p>
 
         <div className="team-grid">
@@ -58,24 +62,26 @@ export default function TeamPage() {
             <div key={idx} className="team-card">
               <div className="team-member-image" style={{ backgroundColor: member.color }}>
                 <div className="avatar-placeholder">
-                  {member.name.split(" ").map(n => n[0]).join("")}
+                  {member.name.split(" ").slice(0, 2).map(n => n[0]).join("")}
                 </div>
               </div>
               <h3>{member.name}</h3>
               <p className="role">{member.role}</p>
               <p className="bio">{member.bio}</p>
+              
+              <div className="team-contact">
+                <div>📧 <a href={`mailto:${member.email}`}>{member.email}</a></div>
+                <div>📱 <a href={`tel:${member.phone}`}>{member.phone}</a></div>
+              </div>
+
+              <div className="team-social">
+                <a href={member.linkedin} target="_blank" rel="noopener noreferrer">LinkedIn</a>
+                <a href={member.github} target="_blank" rel="noopener noreferrer">GitHub</a>
+                <a href="#" target="_blank" rel="noopener noreferrer">Portfolio</a>
+              </div>
             </div>
           ))}
         </div>
-      </section>
-
-      <section className="panel" style={{ backgroundColor: "#f9f9f9", textAlign: "center" }}>
-        <h2>Join Our Team</h2>
-        <p>
-          We're always looking for talented individuals to join our growing team. 
-          If you're passionate about healthcare innovation, we'd love to hear from you!
-        </p>
-        <button className="btn">View Careers</button>
       </section>
     </div>
   );
