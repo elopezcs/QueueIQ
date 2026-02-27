@@ -3,7 +3,7 @@ import React from "react";
 export default function ClinicSelector({ clinics, clinicId, setClinicId, disabled }) {
   return (
     <div className="field">
-      <label>Clinic</label>
+      <label>Select a Clinic</label>
       <select
         value={clinicId}
         disabled={disabled}
@@ -15,6 +15,9 @@ export default function ClinicSelector({ clinics, clinicId, setClinicId, disable
           </option>
         ))}
       </select>
+      <div className="kpiDescription" style={{ textAlign: 'left', marginTop: '8px', marginBottom: '16px' }}>
+        Please select the clinic you plan to visit, then click "Start intake" to begin your pre-arrival assessment.
+      </div>
     </div>
   );
 }

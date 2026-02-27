@@ -154,11 +154,29 @@ export default function App() {
               )}
             </div>
 
-            <div className="disclaimer">
-              {disclaimers.map((d, idx) => (
-                <div key={idx}>• {d}</div>
-              ))}
-            </div>
+            {disclaimers.length === 0 && (
+              <div className="disclaimer-box">
+                <div className="disclaimer-title">Important</div>
+                <div className="disclaimer-subtitle">This is not a diagnosis. Wait-time estimates are not guaranteed.</div>
+                <div className="disclaimer-list">
+                  <div>• This tool provides operational guidance only. It is not a medical diagnosis.</div>
+                  <div>• If you think this is an emergency or severe, seek urgent in-person care or call local emergency services.</div>
+                  <div>• Wait-time estimates are not guaranteed and may change.</div>
+                </div>
+              </div>
+            )}
+
+            {disclaimers.length > 0 && (
+              <div className="disclaimer-box">
+                <div className="disclaimer-title">Important</div>
+                <div className="disclaimer-subtitle">This is not a diagnosis. Wait-time estimates are not guaranteed.</div>
+                <div className="disclaimer-list">
+                  {disclaimers.map((d, idx) => (
+                    <div key={idx}>• {d}</div>
+                  ))}
+                </div>
+              </div>
+            )}
           </section>
 
           <section className="grid">
@@ -187,6 +205,7 @@ export default function App() {
             progress={progress}
             onFinish={handleFinish}
             onReset={handleResetAndRestart}
+            loading={loading}
           />
 
           {loading && <div className="toast">Working…</div>}
