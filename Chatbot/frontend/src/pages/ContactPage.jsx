@@ -31,7 +31,7 @@ export default function ContactPage() {
 
   return (
     <div className="page-container">
-      <div className="page-header" style={{ backgroundColor: "#E2E8E4" }}>
+      <div className="page-header">
         <h1>Contact Us</h1>
         <p>We'd love to hear from you</p>
       </div>
@@ -40,8 +40,12 @@ export default function ContactPage() {
         <div className="contact-container">
           <div className="contact-info">
             <h2>Get in Touch</h2>
+            <p style={{ color: "#555", marginBottom: "32px", lineHeight: "1.6" }}>
+              Have questions about QueueIQ? Our team is here to help. Fill out the form or reach out to us directly.
+            </p>
+            
             <div className="info-item">
-              <h3>Address</h3>
+              <h3>📍 Address</h3>
               <p>
                 QueueIQ Headquarters<br/>
                 123 Healthcare Drive<br/>
@@ -51,7 +55,7 @@ export default function ContactPage() {
             </div>
 
             <div className="info-item">
-              <h3>Phone</h3>
+              <h3>📞 Phone</h3>
               <p>
                 Main: +1 (555) 123-4567<br/>
                 Support: +1 (555) 987-6543<br/>
@@ -60,7 +64,7 @@ export default function ContactPage() {
             </div>
 
             <div className="info-item">
-              <h3>Email</h3>
+              <h3>✉️ Email</h3>
               <p>
                 General: info@queueiq.com<br/>
                 Support: support@queueiq.com<br/>
@@ -69,11 +73,11 @@ export default function ContactPage() {
             </div>
 
             <div className="info-item">
-              <h3>Follow Us</h3>
+              <h3>🌐 Follow Us</h3>
               <div className="social-links">
-                <a href="#" style={{ color: "#FFCCBB" }}>LinkedIn</a>
-                <a href="#" style={{ color: "#6EB5C0" }}>Twitter</a>
-                <a href="#" style={{ color: "#006C84" }}>Facebook</a>
+                <a href="#" style={{ color: "var(--color-azure)" }}>LinkedIn</a>
+                <a href="#" style={{ color: "var(--color-water)" }}>Twitter</a>
+                <a href="#" style={{ color: "var(--color-peach)" }}>Facebook</a>
               </div>
             </div>
           </div>
@@ -146,32 +150,34 @@ export default function ContactPage() {
                 ></textarea>
               </div>
 
-              <button type="submit" className="btn">Send Message</button>
+              <button type="submit" className="btn" style={{ width: "100%", padding: "14px", fontSize: "16px", marginTop: "16px" }}>
+                Send Message
+              </button>
             </form>
           </div>
         </div>
       </section>
 
-      <section className="panel" style={{ backgroundColor: "#f9f9f9", textAlign: "center" }}>
+      <section className="panel" style={{ backgroundColor: "var(--color-air)", textAlign: "center", marginTop: "32px" }}>
         <h2>Our Office Locations</h2>
         <div className="locations-grid">
           <div className="location-card">
-            <div className="location-placeholder" style={{ backgroundColor: "#FFCCBB" }}>
-              New York
+            <div className="location-placeholder" style={{ backgroundColor: "var(--color-peach)", fontSize: "48px" }}>
+              🗽
             </div>
             <h3>North America HQ</h3>
             <p>123 Healthcare Drive, Medical City, MC 12345</p>
           </div>
           <div className="location-card">
-            <div className="location-placeholder" style={{ backgroundColor: "#6EB5C0" }}>
-              London
+            <div className="location-placeholder" style={{ backgroundColor: "var(--color-water)", fontSize: "48px" }}>
+              🎡
             </div>
             <h3>Europe Office</h3>
             <p>456 Medical Lane, Healthcare City, HC 67890</p>
           </div>
           <div className="location-card">
-            <div className="location-placeholder" style={{ backgroundColor: "#006C84" }}>
-              Singapore
+            <div className="location-placeholder" style={{ backgroundColor: "var(--color-azure)", fontSize: "48px" }}>
+              🏯
             </div>
             <h3>Asia Pacific Office</h3>
             <p>789 Clinic Street, Hospital City, HC 11111</p>
