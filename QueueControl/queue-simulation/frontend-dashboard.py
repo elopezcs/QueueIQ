@@ -80,7 +80,7 @@ with c_table:
         
         st.dataframe(
             display_df.style.map(highlight_critical, subset=['acuity']), 
-            use_container_width=True,
+            width='stretch',
             hide_index=True
         )
     else:

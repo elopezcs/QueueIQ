@@ -1,14 +1,17 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+import os
 
+# Ensure the directory exists
 DATA_FILE_FOLDER = "data/synthetic_data/"
+os.makedirs(DATA_FILE_FOLDER, exist_ok=True)
 
 # --- CONFIGURATION ---
 OUTPUT_FILE = "clinic_historical_data.csv"
 CLINIC_IDS = ["Downtown-Clinic", "Uptown-Clinic", "Westside-Clinic"]
 NUM_DOCTORS = 2
-DAYS_TO_SIMULATE = 180  # 6 months of data
+DAYS_TO_SIMULATE = 365  # 1 year of data
 START_DATE = datetime(2023, 1, 1, 8, 0, 0)
 
 def get_duration(acuity):
@@ -77,12 +80,11 @@ def generate_data():
         for v in clinic_data:
             arr = v['arrival_time']
             
-            # --- CALCULATE FEATURE: Queue Length ---
-            # How many previous patients are still waiting when this patient walks in?
+            # --- CALCULATE CURRENT STATE: Queue Length ---
             q_len = sum(1 for h_arr, h_start in queue_history if h_arr <= arr and h_start > arr)
             v['queue_length_at_arrival'] = q_len
             
-            # --- CALCULATE TARGET 1: Actual Wait Time ---
+            # --- CALCULATE WAIT TIME ---
             doctors_free_at.sort()
             earliest_free = doctors_free_at[0]
             
@@ -102,17 +104,48 @@ def generate_data():
 
     df_final = pd.DataFrame(final_data)
 
-    # --- CALCULATE TARGET 2: Rush Hour Probability ---
-    # For every visit, count how many total patients arrive in the next 2 hours
-    print("⏳ Calculating surge prediction targets...")
-    df_final = df_final.sort_values(by=["clinic_id", "arrival_time"]).reset_index(drop=True)
+    print("🧠 Engineering features for XGBoost...")
+    # 3. FEATURE ENGINEERING 
     
-    # We use a rolling window to look ahead 2 hours
+    # A. Cyclical Time Features (Mapping time to a circle using sine/cosine)
+    # 24 hours in a day
+    df_final['hour_sin'] = np.sin(2 * np.pi * df_final['hour_of_day'] / 24.0)
+    df_final['hour_cos'] = np.cos(2 * np.pi * df_final['hour_of_day'] / 24.0)
+    
+    # 7 days in a week
+    df_final['day_sin'] = np.sin(2 * np.pi * df_final['day_of_week'] / 7.0)
+    df_final['day_cos'] = np.cos(2 * np.pi * df_final['day_of_week'] / 7.0)
+
+    # B. Lagged Features (What happened in the last 60 minutes?)
+    df_final = df_final.sort_values(by=["clinic_id", "arrival_time"]).reset_index(drop=True)
+    df_final = df_final.set_index('arrival_time')
+    
+    lagged_arrivals = []
+    lagged_wait_time = []
+    
+    for clinic in CLINIC_IDS:
+        c_df = df_final[df_final['clinic_id'] == clinic].copy()
+        
+        # Count arrivals in the preceding 1 hour (closed='left' excludes the current minute so we don't leak future data)
+        past_1h_counts = c_df['clinic_id'].rolling('1H', closed='left').count().fillna(0)
+        
+        # Average wait time of patients who arrived in the preceding 1 hour
+        past_1h_wait = c_df['actual_wait_minutes'].rolling('1H', closed='left').mean().fillna(0)
+        
+        lagged_arrivals.extend(past_1h_counts.tolist())
+        lagged_wait_time.extend(past_1h_wait.tolist())
+
+    df_final = df_final.reset_index()
+    df_final['arrivals_last_1_hour'] = lagged_arrivals
+    df_final['avg_wait_last_1_hour'] = lagged_wait_time
+
+    # 4. CALCULATE TARGET: Rush Hour Probability
+    print("⏳ Calculating surge prediction targets...")
     df_final = df_final.set_index('arrival_time')
     
     arrivals_next_2h = []
     for clinic in CLINIC_IDS:
-        c_df = df_final[df_final['clinic_id'] == clinic]
+        c_df = df_final[df_final['clinic_id'] == clinic].copy()
         # Count rows in a 2-hour rolling window, shifted backwards to look into the future
         future_counts = c_df['clinic_id'].rolling('2H').count().shift(-1).fillna(0)
         arrivals_next_2h.extend(future_counts.tolist())
@@ -120,22 +153,28 @@ def generate_data():
     df_final = df_final.reset_index()
     df_final['arrivals_next_2_hours'] = arrivals_next_2h
     
-    # Define a "Rush Hour Surge" as > 15 arrivals in the next 2 hours (Binary Classification Target)
+    # Define a "Rush Hour Surge" as > 15 arrivals in the next 2 hours
     df_final['is_surge_imminent'] = (df_final['arrivals_next_2_hours'] > 15).astype(int)
 
-    # 3. EXPORT
+    # 5. EXPORT
     cols_order = [
-        "clinic_id", "arrival_time", "day_of_week", "is_weekend", "hour_of_day", 
-        "acuity", "est_duration", "queue_length_at_arrival", 
+        "clinic_id", "arrival_time", 
+        "day_of_week", "day_sin", "day_cos", "is_weekend", 
+        "hour_of_day", "hour_sin", "hour_cos", 
+        "acuity", "est_duration", 
+        "queue_length_at_arrival", "arrivals_last_1_hour", "avg_wait_last_1_hour",
         "actual_wait_minutes", "arrivals_next_2_hours", "is_surge_imminent"
     ]
     df_final = df_final[cols_order]
     
-    OUTPUT_FILE = DATA_FILE_FOLDER + "training_data.csv"
-    df_final.to_csv(OUTPUT_FILE, index=False)
-    print(f"✅ Success! Saved {len(df_final)} rows to {OUTPUT_FILE}")
-    print("\nSample Data:")
-    print(df_final[['arrival_time', 'hour_of_day', 'queue_length_at_arrival', 'actual_wait_minutes', 'is_surge_imminent']].head())
+    OUTPUT_FILE_PATH = os.path.join(DATA_FILE_FOLDER, OUTPUT_FILE)
+    df_final.to_csv(OUTPUT_FILE_PATH, index=False)
+    print(f"✅ Success! Saved {len(df_final)} rows to {OUTPUT_FILE_PATH}")
+    
+    print("\nSample Data (Features & Targets):")
+    # Displaying just a few key columns to verify the logic
+    display_cols = ['arrival_time', 'hour_sin', 'arrivals_last_1_hour', 'queue_length_at_arrival', 'is_surge_imminent']
+    print(df_final[display_cols].head(10))
 
 if __name__ == "__main__":
     generate_data()
