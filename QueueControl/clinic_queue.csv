@@ -1,6 +1,33 @@
-clinic_id,id,arrival_time,acuity,est_duration
-Downtown-Clinic,1276,20:28:32,3,20
-Downtown-Clinic,3029,20:28:42,4,10
-Downtown-Clinic,3409,20:28:28,5,5
-Westside-Clinic,4273,20:28:50,4,10
-Westside-Clinic,3050,20:28:58,3,20
+clinic_id,id,arrival_time,acuity,est_duration,seen_doctor,actual_wait_minutes
+Westside-Clinic,8199,2026-03-10 21:14:08,4,10,True,2.7005
+Downtown-Clinic,7264,2026-03-10 21:14:56,4,10,True,2.571494
+Downtown-Clinic,2177,2026-03-10 21:17:56,4,10,True,2.80143
+Uptown-Clinic,8263,2026-03-10 21:18:52,2,40,True,2.347512
+Uptown-Clinic,7787,2026-03-10 21:18:56,5,5,True,2.493046
+Uptown-Clinic,9866,2026-03-10 21:19:06,4,10,True,2.808857
+Uptown-Clinic,6637,2026-03-10 21:19:10,2,40,True,9.240634
+Downtown-Clinic,9644,2026-03-10 21:19:12,2,40,True,3.053772
+Uptown-Clinic,1941,2026-03-10 21:19:17,3,20,True,18.875974
+Westside-Clinic,1794,2026-03-10 21:19:21,3,20,True,2.373786
+Uptown-Clinic,4339,2026-03-10 21:19:25,4,10,True,31.63512
+Downtown-Clinic,6631,2026-03-10 21:19:42,3,20,True,2.189363
+Downtown-Clinic,4409,2026-03-10 21:19:54,4,10,True,2.63512
+Downtown-Clinic,3838,2026-03-10 21:20:19,4,10,True,2.450645
+Downtown-Clinic,3393,2026-03-10 21:20:37,3,20,True,3.076218
+Uptown-Clinic,5581,2026-03-10 21:20:42,3,20,True,2.350901
+Downtown-Clinic,9195,2026-03-10 21:20:46,1,60,True,2.6193530000000003
+Westside-Clinic,4024,2026-03-10 21:20:52,3,20,True,2.95078
+Downtown-Clinic,4754,2026-03-10 21:21:11,3,20,True,2.550367
+Uptown-Clinic,7742,2026-03-10 21:21:56,5,5,True,2.961517
+Westside-Clinic,8185,2026-03-10 21:21:58,3,20,True,3.151829
+Westside-Clinic,8592,2026-03-10 21:22:01,4,10,True,2.220601
+Uptown-Clinic,9764,2026-03-10 21:22:05,3,20,True,2.3681
+Westside-Clinic,3393,2026-03-10 21:22:09,3,20,True,4.602099
+Downtown-Clinic,8276,2026-03-10 21:22:11,2,40,True,2.602099
+Westside-Clinic,5890,2026-03-10 21:22:32,3,20,True,2.387573
+Downtown-Clinic,7522,2026-03-10 21:22:50,4,10,True,2.936923
+Westside-Clinic,4721,2026-03-10 21:23:19,4,10,True,2.97003
+Downtown-Clinic,5584,2026-03-10 21:23:32,4,10,True,2.411602
+Uptown-Clinic,3621,2026-03-10 21:23:50,3,20,True,3.055311
+Westside-Clinic,2786,2026-03-10 21:24:55,3,20,True,2.200345
+Uptown-Clinic,6229,2026-03-10 21:24:59,3,20,True,2.352488
