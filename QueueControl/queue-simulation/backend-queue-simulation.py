@@ -3,6 +3,12 @@ import time
 import random
 import os
 from datetime import datetime, timedelta
+import joblib
+import numpy as np
+
+# Load the model once when the application starts
+MODEL_PATH = "models/queueiq_xgb_model.joblib"
+xgb_model = joblib.load(MODEL_PATH)
 
 # --- CONFIGURATION ---
 CSV_FILE = "clinic_queue.csv"
@@ -21,11 +27,44 @@ def init_csv():
 def get_duration(acuity):
     return {1: 60, 2: 40, 3: 20, 4: 10, 5: 5}[acuity]
 
-def get_arrival_probability(current_hour):
-    if 8 <= current_hour < 11: return 0.60    # Morning Rush
-    elif 11 <= current_hour < 14: return 0.15 # Lunch quiet
-    elif 16 <= current_hour < 19: return 0.70 # Evening Rush
-    else: return 0.25                         # Normal Volume
+# def get_arrival_probability(current_hour):
+#     if 8 <= current_hour < 11: return 0.60    # Morning Rush
+#     elif 11 <= current_hour < 14: return 0.15 # Lunch quiet
+#     elif 16 <= current_hour < 19: return 0.70 # Evening Rush
+#     else: return 0.25                         # Normal Volume
+
+def get_surge_probability(current_time: datetime, current_queue_length: int, arrivals_last_1h: int, avg_wait_last_1h: float) -> float:
+    """
+    Predicts the probability of a patient surge in the next 2 hours.
+    """
+    # 1. Extract raw time components
+    hour_of_day = current_time.hour
+    day_of_week = current_time.weekday()
+    is_weekend = int(day_of_week >= 5)
+    
+    # 2. Apply cyclical transformations (must match training exactly)
+    hour_sin = np.sin(2 * np.pi * hour_of_day / 24.0)
+    hour_cos = np.cos(2 * np.pi * hour_of_day / 24.0)
+    day_sin = np.sin(2 * np.pi * day_of_week / 7.0)
+    day_cos = np.cos(2 * np.pi * day_of_week / 7.0)
+    
+    # 3. Format features into a DataFrame with the exact column names used in training
+    features = pd.DataFrame([{
+        "is_weekend": is_weekend,
+        "day_sin": day_sin,
+        "day_cos": day_cos,
+        "hour_sin": hour_sin,
+        "hour_cos": hour_cos,
+        "queue_length_at_arrival": current_queue_length,
+        "arrivals_last_1_hour": arrivals_last_1h,
+        "avg_wait_last_1_hour": avg_wait_last_1h
+    }])
+    
+    # 4. Predict probability
+    # predict_proba returns an array like [[prob_class_0, prob_class_1]]
+    probability = xgb_model.predict_proba(features)[0][1]
+    
+    return round(float(probability), 4)
 
 def get_time_label(hour):
     if 8 <= hour < 11: return "Morning Rush"
@@ -88,8 +127,20 @@ def run_simulation():
                     df = pd.DataFrame(columns=["clinic_id", "id", "arrival_time", "acuity", "est_duration"])
 
             # 3. DYNAMIC ARRIVALS (Walk-ins for each clinic)
-            current_prob = get_arrival_probability(current_hour)
-            time_label = get_time_label(current_hour)
+            # current_prob = get_arrival_probability(current_hour)
+            # time_label = get_time_label(current_hour)
+
+            # Get the current local time dynamically
+            now = datetime.now() 
+            
+            # NOTE: In a live production environment, these variables would be 
+            # calculated dynamically by querying your active QueueIQ database. 
+            # We are keeping them hardcoded here just to test the function.
+            queue_len = 5
+            recent_arrivals = 8
+            recent_wait = 25.5
+            
+            current_prob = get_surge_probability(now, queue_len, recent_arrivals, recent_wait)
             
             for cid in CLINIC_IDS:
                 if random.random() < current_prob: 
@@ -106,7 +157,7 @@ def run_simulation():
                     new_row_df = pd.DataFrame([new_p])
                     df = pd.concat([df, new_row_df], ignore_index=True)
                     
-                    print(f"🔔 Walk-in [{time_label}] at {cid}: Patient {new_id} added.")
+                    print(f"🔔 Walk-in [{now.strftime('%Y-%m-%d %H:%M:%S')}] at clinic {cid}: Patient {new_id} added with dynamic Surge Probability of {current_prob * 100:.1f}%")
                     updated = True
 
             # 4. WRITE UPDATES
