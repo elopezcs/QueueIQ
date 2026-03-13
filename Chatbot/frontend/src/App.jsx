@@ -75,6 +75,16 @@ export default function App() {
     setLoading(true);
     try {
       const res = await endChat(sessionId);
+      const isEmergencyResult =
+        String(res?.urgency_band || "").toLowerCase() === "high" &&
+        String(res?.visit_category || "").toLowerCase() === "urgent";
+
+      if (isEmergencyResult) {
+        setIsModalOpen(false);
+        handleReset();
+        return;
+      }
+
       setResults(res);
       setIsModalOpen(false);
     } finally {
@@ -144,9 +154,11 @@ export default function App() {
                 </button>
               ) : (
                 <>
-                  <button className="btn" onClick={handleFinish} disabled={loading}>
-                    Finish
-                  </button>
+                  {!results && (
+                    <button className="btn" onClick={handleFinish} disabled={loading}>
+                      Finish
+                    </button>
+                  )}
                   <button className="btn secondary" onClick={handleReset} disabled={loading}>
                     Reset
                   </button>
@@ -181,7 +193,7 @@ export default function App() {
 
           <section className="grid">
             <div className="panel">
-              <ResultsView results={results} />
+              <ResultsView results={results} clinic={clinics.find(c => c.id === clinicId)} />
             </div>
           </section>
 
@@ -206,6 +218,7 @@ export default function App() {
             onFinish={handleFinish}
             onReset={handleResetAndRestart}
             loading={loading}
+            hasResults={!!results}
           />
 
           {loading && <div className="toast">Working…</div>}

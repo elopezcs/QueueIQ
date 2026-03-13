@@ -29,3 +29,48 @@ clinics:
     mock_capacity:
       servers_total: 2
       avg_service_minutes: 14
+
+  - id: "waterloo-boardwalk"
+    name: "QueueIQ Walk-in The Boardwalk"
+    address_or_city: "Waterloo, ON"
+    hours:
+      mon: "08:00-20:00"
+      tue: "08:00-20:00"
+      wed: "08:00-20:00"
+      thu: "08:00-20:00"
+      fri: "08:00-20:00"
+      sat: "09:00-15:00"
+      sun: "09:00-15:00"
+    mock_capacity:
+      servers_total: 4
+      avg_service_minutes: 10
+
+  - id: "kitchener-fairway"
+    name: "QueueIQ Walk-in Fairway"
+    address_or_city: "Kitchener, ON"
+    hours:
+      mon: "09:00-19:00"
+      tue: "09:00-19:00"
+      wed: "09:00-19:00"
+      thu: "09:00-19:00"
+      fri: "09:00-19:00"
+      sat: "10:00-16:00"
+      sun: "closed"
+    mock_capacity:
+      servers_total: 3
+      avg_service_minutes: 15
+
+  - id: "cambridge-hespeler"
+    name: "QueueIQ Walk-in Cambridge Hespeler"
+    address_or_city: "Cambridge, ON"
+    hours:
+      mon: "08:30-17:30"
+      tue: "08:30-17:30"
+      wed: "08:30-17:30"
+      thu: "08:30-17:30"
+      fri: "08:30-17:30"
+      sat: "09:00-13:00"
+      sun: "closed"
+    mock_capacity:
+      servers_total: 2
+      avg_service_minutes: 12
