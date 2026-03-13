@@ -24,6 +24,19 @@ class Settings(BaseSettings):
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
 
+    # Auth
+    auth_secret: str = Field(default="dev-auth-secret", alias="AUTH_SECRET")
+    otp_ttl_minutes: int = Field(default=10, alias="OTP_TTL_MINUTES")
+    auth_session_hours: int = Field(default=24, alias="AUTH_SESSION_HOURS")
+
+    # Email
+    email_sender: str = Field(default="no-reply@queueiq.local", alias="EMAIL_SENDER")
+    smtp_host: str | None = Field(default=None, alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, alias="SMTP_PORT")
+    smtp_username: str | None = Field(default=None, alias="SMTP_USERNAME")
+    smtp_password: str | None = Field(default=None, alias="SMTP_PASSWORD")
+    smtp_use_tls: bool = Field(default=True, alias="SMTP_USE_TLS")
+
     class Config:
         env_file = ".env"
         extra = "ignore"

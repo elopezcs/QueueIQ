@@ -185,3 +185,11 @@ poetry.toml
 pyrightconfig.json
 
 # End of https://www.toptal.com/developers/gitignore/api/python,jupyternotebooks
+# Local working backups
+local-backups/
+
+# Local QueueControl docs artifacts
+QueueControl/backend/docs/
+
+# Local Chatbot evaluation reports
+Chatbot/backend/reports/
