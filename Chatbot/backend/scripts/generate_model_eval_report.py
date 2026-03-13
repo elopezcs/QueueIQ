@@ -16,12 +16,12 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 os.chdir(BACKEND_ROOT)
 
-from app.agent.llm_client import LLMClient
-from app.agent.orchestrator import format_clinic_context, transcript_to_text
-from app.agent.prompts import DEFAULT_DISCLAIMERS, prompt_final_classification, prompt_next_question
-from app.config.loader import clinic_config_snapshot_hash, get_clinic_by_id
-from app.core.settings import settings
-from app.agent.queue_risk import estimate_wait_minutes, mock_queue_snapshot
+from app.agent.llm_client import LLMClient  # noqa: E402
+from app.agent.orchestrator import format_clinic_context, transcript_to_text  # noqa: E402
+from app.agent.prompts import DEFAULT_DISCLAIMERS, prompt_final_classification, prompt_next_question  # noqa: E402
+from app.config.loader import clinic_config_snapshot_hash, get_clinic_by_id  # noqa: E402
+from app.core.settings import settings  # noqa: E402
+from app.agent.queue_risk import estimate_wait_minutes, mock_queue_snapshot  # noqa: E402
 
 SAFE_MESSAGE = (
     "If this may be severe or an emergency, seek urgent in-person care or call local emergency services. "
@@ -434,3 +434,4 @@ def main() -> None:
 
 if __name__ == '__main__':
     main()
+
