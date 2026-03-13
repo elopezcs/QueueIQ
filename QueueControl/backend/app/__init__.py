@@ -1,0 +1,1 @@
+"""QueueControl FastAPI application package."""
