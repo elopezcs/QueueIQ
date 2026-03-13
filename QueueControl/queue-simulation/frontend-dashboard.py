@@ -13,10 +13,17 @@ st.set_page_config(layout="wide", page_title="Multi-Clinic Dashboard")
 # --- HELPER FUNCTIONS ---
 def load_data():
     try:
-        return pd.read_csv(CSV_FILE)
-    except:
-        # Include clinic_id in the fallback schema
-        return pd.DataFrame(columns=["clinic_id", "id", "arrival_time", "acuity", "est_duration"])
+        df = pd.read_csv(CSV_FILE)
+        # Ensure seen_doctor is treated as a boolean for reliable filtering
+        if 'seen_doctor' in df.columns:
+            df['seen_doctor'] = df['seen_doctor'].astype(bool)
+        return df
+    except Exception as e:
+        # Updated fallback schema to match the new backend
+        return pd.DataFrame(columns=[
+            "clinic_id", "id", "arrival_time", "acuity", 
+            "est_duration", "seen_doctor", "actual_wait_minutes"
+        ])
 
 def add_patient_to_csv(target_clinic, acuity=None):
     df = load_data()
@@ -28,9 +35,11 @@ def add_patient_to_csv(target_clinic, acuity=None):
     new_p = {
         "clinic_id": target_clinic,
         "id": new_id,
-        "arrival_time": datetime.now().strftime("%H:%M:%S"),
+        "arrival_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), # Updated to match backend datetime format
         "acuity": acuity,
-        "est_duration": {1: 60, 2: 40, 3: 20, 4: 10, 5: 5}[acuity]
+        "est_duration": {1: 60, 2: 40, 3: 20, 4: 10, 5: 5}[acuity],
+        "seen_doctor": False,       # New patient hasn't seen a doctor yet
+        "actual_wait_minutes": None # Wait time is unknown upon arrival
     }
     
     new_row_df = pd.DataFrame([new_p])
@@ -48,22 +57,31 @@ full_df = load_data()
 # Clinic Selector (Dropdown)
 selected_clinic = st.selectbox("📍 Select Clinic to View/Manage:", CLINIC_CHOICES)
 
-# Filter data for the selected clinic
-if not full_df.empty and 'clinic_id' in full_df.columns:
-    df = full_df[full_df['clinic_id'] == selected_clinic]
+# Filter data for the selected clinic AND only show patients who are STILL WAITING
+if not full_df.empty and 'clinic_id' in full_df.columns and 'seen_doctor' in full_df.columns:
+    # The tilde (~) means "NOT", so this grabs rows where seen_doctor is False
+    df_waiting = full_df[(full_df['clinic_id'] == selected_clinic) & (~full_df['seen_doctor'])]
+    total_waiting_system = len(full_df[~full_df['seen_doctor']])
 else:
-    df = pd.DataFrame(columns=["clinic_id", "id", "arrival_time", "acuity", "est_duration"])
+    # Empty state fallback
+    df_waiting = pd.DataFrame(columns=[
+        "clinic_id", "id", "arrival_time", "acuity", 
+        "est_duration", "seen_doctor", "actual_wait_minutes"
+    ])
+    total_waiting_system = 0
 
 # 1. METRICS ROW
 col1, col2, col3, col4 = st.columns(4)
-col1.metric(f"Queue at {selected_clinic}", len(df))
+col1.metric(f"Queue at {selected_clinic}", len(df_waiting))
 
-if not df.empty:
-    col2.metric("Next Up ", df.iloc[0]['id'])
+if not df_waiting.empty:
+    # Sort the dataframe locally by acuity and time so the "Next Up" metric matches the backend logic
+    df_waiting = df_waiting.sort_values(by=["acuity", "arrival_time"])
+    col2.metric("Next Up", df_waiting.iloc[0]['id'])
 else:
     col2.metric("Next Up", "None")
 
-col3.metric("Total System Queue (All Clinics)", len(full_df))
+col3.metric("Total System Queue (All Clinics)", total_waiting_system)
 col4.caption("updates every 2s")
 
 # 2. MAIN CONTENT
@@ -71,16 +89,17 @@ c_table, c_actions = st.columns([3, 1])
 
 with c_table:
     st.subheader(f"📋 Current Queue: {selected_clinic}")
-    if not df.empty:
+    if not df_waiting.empty:
         def highlight_critical(val):
             return 'background-color: #ffcccc' if val == 1 else ''
         
-        # Hide the clinic_id column from the UI since it's redundant here
-        display_df = df.drop(columns=['clinic_id'], errors='ignore')
+        # Hide the redundant backend columns from the UI table for a cleaner look
+        display_cols_to_drop = ['clinic_id', 'seen_doctor', 'actual_wait_minutes']
+        display_df = df_waiting.drop(columns=display_cols_to_drop, errors='ignore')
         
         st.dataframe(
             display_df.style.map(highlight_critical, subset=['acuity']), 
-            use_container_width=True,
+            width='stretch',
             hide_index=True
         )
     else:
