@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 
-export default function ChatWidget({ messages, onSend, disabled, done, progress, onFinish, onReset, loading }) {
+export default function ChatWidget({ messages, onSend, disabled, done, progress, onFinish, onReset, loading, hasResults = false }) {
   const [text, setText] = useState("");
   const listRef = useRef(null);
   const inputRef = useRef(null);
@@ -85,9 +85,11 @@ export default function ChatWidget({ messages, onSend, disabled, done, progress,
             <button className="btn secondary" onClick={onReset} style={{ flex: 1 }}>
               Reset
             </button>
-            <button className="btn" onClick={onFinish} style={{ flex: 1 }}>
-              Finish
-            </button>
+            {!hasResults && (
+              <button className="btn" onClick={onFinish} style={{ flex: 1 }}>
+                Finish
+              </button>
+            )}
           </div>
         )}
       </div>

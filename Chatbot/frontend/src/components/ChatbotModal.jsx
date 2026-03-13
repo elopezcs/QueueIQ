@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import ChatWidget from "./ChatWidget.jsx";
 
-export default function ChatbotModal({ isOpen, onClose, messages, onSend, disabled, done, progress, onFinish, onReset, loading }) {
+export default function ChatbotModal({ isOpen, onClose, messages, onSend, disabled, done, progress, onFinish, onReset, loading, hasResults = false }) {
   if (!isOpen) return null;
 
   return (
@@ -26,6 +26,7 @@ export default function ChatbotModal({ isOpen, onClose, messages, onSend, disabl
             onFinish={onFinish}
             onReset={onReset}
             loading={loading}
+            hasResults={hasResults}
           />
         </div>
       </div>

@@ -1,6 +1,6 @@
 import React from "react";
 
-export default function ResultsView({ results }) {
+export default function ResultsView({ results, clinic }) {
   if (!results) {
     return (
       <div>
@@ -39,6 +39,14 @@ export default function ResultsView({ results }) {
   return (
     <div>
       <h2>Results</h2>
+
+      {clinic && (
+        <div className="card" style={{ marginBottom: '24px', borderLeft: '4px solid var(--color-azure)' }}>
+          <div style={{ fontSize: '0.9em', color: 'var(--color-azure)', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>Selected Clinic</div>
+          <div style={{ fontSize: '1.2em', fontWeight: 'bold', marginBottom: '4px' }}>{clinic.name}</div>
+          <div className="muted">{clinic.address_or_city}</div>
+        </div>
+      )}
 
       <div className="card">
         <div className="kpiRow-4">
