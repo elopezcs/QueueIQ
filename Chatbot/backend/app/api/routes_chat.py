@@ -3,22 +3,23 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from app.models.schemas import ChatStartOut, ChatTurnOut, ChatEndOut
-from app.storage.repo import SessionRepo
-from app.storage.db import get_conn
 from app.agent.orchestrator import ChatOrchestrator
+from app.auth.utils import get_authenticated_patient
 from app.config.loader import get_clinic_by_id
+from app.models.schemas import ChatEndOut, ChatStartOut, ChatTurnOut
+from app.storage.db import get_conn
+from app.storage.repo import SessionRepo
 
 router = APIRouter()
 
 
 def _error(status_code: int, detail: str, error_code: str, field: str | None = None) -> JSONResponse:
     payload: dict[str, Any] = {
-        "detail": detail,
-        "error_code": error_code,
+        'detail': detail,
+        'error_code': error_code,
     }
     if field is not None:
-        payload["field"] = field
+        payload['field'] = field
     return JSONResponse(status_code=status_code, content=payload)
 
 
@@ -39,8 +40,8 @@ def _validate_required_string(
     if field_name not in body:
         return _error(
             400,
-            f"{field_name} is required and cannot be empty",
-            "MISSING_FIELD",
+            f'{field_name} is required and cannot be empty',
+            'MISSING_FIELD',
             field_name,
         )
 
@@ -48,25 +49,25 @@ def _validate_required_string(
     if not isinstance(value, str):
         return _error(
             422,
-            f"{field_name} must be a non-empty string",
-            "INVALID_FORMAT",
+            f'{field_name} must be a non-empty string',
+            'INVALID_FORMAT',
             field_name,
         )
 
     cleaned = value.strip()
-    if cleaned == "":
+    if cleaned == '':
         return _error(
             400,
-            f"{field_name} is required and cannot be empty",
-            "MISSING_FIELD",
+            f'{field_name} is required and cannot be empty',
+            'MISSING_FIELD',
             field_name,
         )
 
     if len(cleaned) > max_length:
         return _error(
             422,
-            f"{field_name} has an incorrect format or length",
-            "INVALID_FORMAT",
+            f'{field_name} has an incorrect format or length',
+            'INVALID_FORMAT',
             field_name,
         )
 
@@ -78,7 +79,7 @@ def _session_output_exists(session_id: str) -> bool:
     conn = get_conn()
     try:
         row = conn.execute(
-            "SELECT 1 FROM outputs WHERE session_id=? LIMIT 1",
+            'SELECT 1 FROM outputs WHERE session_id=? LIMIT 1',
             (session_id,),
         ).fetchone()
         return row is not None
@@ -87,66 +88,67 @@ def _session_output_exists(session_id: str) -> bool:
 
 
 @router.post(
-    "/chat/start",
+    '/chat/start',
     response_model=ChatStartOut,
     responses={
-        400: {"description": "Bad Request"},
-        404: {"description": "Clinic Not Found"},
-        422: {"description": "Validation Error"},
-        500: {"description": "Internal Server Error"},
+        400: {'description': 'Bad Request'},
+        404: {'description': 'Clinic Not Found'},
+        422: {'description': 'Validation Error'},
+        500: {'description': 'Internal Server Error'},
     },
 )
 async def chat_start(request: Request):
     body = await _get_json_body(request)
     if body is None:
-        return _error(400, "Request body must be a JSON object", "INVALID_JSON")
+        return _error(400, 'Request body must be a JSON object', 'INVALID_JSON')
 
-    clinic_id = _validate_required_string(body, "clinic_id", max_length=64)
+    clinic_id = _validate_required_string(body, 'clinic_id', max_length=64)
     if isinstance(clinic_id, JSONResponse):
         return clinic_id
 
     clinic = get_clinic_by_id(clinic_id)
     if not clinic:
-        return _error(404, "Clinic not found", "NOT_FOUND")
+        return _error(404, 'Clinic not found', 'NOT_FOUND')
 
     try:
         repo = SessionRepo()
-        session_id = repo.create_session(clinic_id=clinic_id)
+        patient = get_authenticated_patient(request)
+        session_id = repo.create_session(clinic_id=clinic_id, patient_id=patient['patient_id'] if patient else None)
 
         orchestrator = ChatOrchestrator()
         assistant_message, disclaimers = orchestrator.first_message(clinic=clinic)
 
-        repo.append_message(session_id, role="assistant", content=assistant_message)
+        repo.append_message(session_id, role='assistant', content=assistant_message)
         return ChatStartOut(
             session_id=session_id,
             assistant_message=assistant_message,
             disclaimers=disclaimers,
         )
     except Exception:
-        return _error(500, "Unable to create chat session", "INTERNAL_SERVER_ERROR")
+        return _error(500, 'Unable to create chat session', 'INTERNAL_SERVER_ERROR')
 
 
 @router.post(
-    "/chat/turn",
+    '/chat/turn',
     response_model=ChatTurnOut,
     responses={
-        400: {"description": "Bad Request"},
-        404: {"description": "Session Not Found"},
-        409: {"description": "Conflict"},
-        422: {"description": "Validation Error"},
-        500: {"description": "Internal Server Error"},
+        400: {'description': 'Bad Request'},
+        404: {'description': 'Session Not Found'},
+        409: {'description': 'Conflict'},
+        422: {'description': 'Validation Error'},
+        500: {'description': 'Internal Server Error'},
     },
 )
 async def chat_turn(request: Request):
     body = await _get_json_body(request)
     if body is None:
-        return _error(400, "Request body must be a JSON object", "INVALID_JSON")
+        return _error(400, 'Request body must be a JSON object', 'INVALID_JSON')
 
-    session_id = _validate_required_string(body, "session_id", max_length=64)
+    session_id = _validate_required_string(body, 'session_id', max_length=64)
     if isinstance(session_id, JSONResponse):
         return session_id
 
-    user_message = _validate_required_string(body, "user_message", max_length=2000)
+    user_message = _validate_required_string(body, 'user_message', max_length=2000)
     if isinstance(user_message, JSONResponse):
         return user_message
 
@@ -154,16 +156,20 @@ async def chat_turn(request: Request):
         repo = SessionRepo()
         session = repo.get_session(session_id)
         if not session:
-            return _error(404, "Session not found", "NOT_FOUND")
+            return _error(404, 'Session not found', 'NOT_FOUND')
 
-        if bool(session.get("done")) or _session_output_exists(session_id):
-            return _error(409, "Session is already finalized", "SESSION_FINALIZED")
+        if bool(session.get('done')) or _session_output_exists(session_id):
+            return _error(409, 'Session is already finalized', 'SESSION_FINALIZED')
 
-        clinic = get_clinic_by_id(session["clinic_id"])
+        patient = get_authenticated_patient(request)
+        if patient and not session.get('patient_id'):
+            repo.attach_patient(session_id, patient['patient_id'])
+
+        clinic = get_clinic_by_id(session['clinic_id'])
         if not clinic:
-            return _error(500, "Clinic config missing", "INTERNAL_SERVER_ERROR")
+            return _error(500, 'Clinic config missing', 'INTERNAL_SERVER_ERROR')
 
-        repo.append_message(session_id, role="user", content=user_message)
+        repo.append_message(session_id, role='user', content=user_message)
 
         orchestrator = ChatOrchestrator()
         assistant_message, done, progress = orchestrator.next_turn(
@@ -171,7 +177,7 @@ async def chat_turn(request: Request):
             transcript=repo.get_transcript(session_id),
         )
 
-        repo.append_message(session_id, role="assistant", content=assistant_message)
+        repo.append_message(session_id, role='assistant', content=assistant_message)
 
         if done:
             repo.mark_done(session_id)
@@ -182,26 +188,26 @@ async def chat_turn(request: Request):
             progress=progress,
         )
     except Exception:
-        return _error(500, "Unable to process chat turn", "INTERNAL_SERVER_ERROR")
+        return _error(500, 'Unable to process chat turn', 'INTERNAL_SERVER_ERROR')
 
 
 @router.post(
-    "/chat/end",
+    '/chat/end',
     response_model=ChatEndOut,
     responses={
-        400: {"description": "Bad Request"},
-        404: {"description": "Session Not Found"},
-        409: {"description": "Conflict"},
-        422: {"description": "Validation Error"},
-        500: {"description": "Internal Server Error"},
+        400: {'description': 'Bad Request'},
+        404: {'description': 'Session Not Found'},
+        409: {'description': 'Conflict'},
+        422: {'description': 'Validation Error'},
+        500: {'description': 'Internal Server Error'},
     },
 )
 async def chat_end(request: Request):
     body = await _get_json_body(request)
     if body is None:
-        return _error(400, "Request body must be a JSON object", "INVALID_JSON")
+        return _error(400, 'Request body must be a JSON object', 'INVALID_JSON')
 
-    session_id = _validate_required_string(body, "session_id", max_length=64)
+    session_id = _validate_required_string(body, 'session_id', max_length=64)
     if isinstance(session_id, JSONResponse):
         return session_id
 
@@ -209,14 +215,18 @@ async def chat_end(request: Request):
         repo = SessionRepo()
         session = repo.get_session(session_id)
         if not session:
-            return _error(404, "Session not found", "NOT_FOUND")
+            return _error(404, 'Session not found', 'NOT_FOUND')
+
+        patient = get_authenticated_patient(request)
+        if patient and not session.get('patient_id'):
+            repo.attach_patient(session_id, patient['patient_id'])
 
         if _session_output_exists(session_id):
-            return _error(409, "Session has already been finalized", "SESSION_FINALIZED")
+            return _error(409, 'Session has already been finalized', 'SESSION_FINALIZED')
 
-        clinic = get_clinic_by_id(session["clinic_id"])
+        clinic = get_clinic_by_id(session['clinic_id'])
         if not clinic:
-            return _error(500, "Clinic config missing", "INTERNAL_SERVER_ERROR")
+            return _error(500, 'Clinic config missing', 'INTERNAL_SERVER_ERROR')
 
         transcript = repo.get_transcript(session_id)
 
@@ -225,7 +235,7 @@ async def chat_end(request: Request):
             clinic=clinic,
             transcript=transcript,
         )
-        result["session_id"] = session_id
+        result['session_id'] = session_id
 
         repo.store_outputs(
             session_id=session_id,
@@ -234,4 +244,4 @@ async def chat_end(request: Request):
 
         return ChatEndOut(**result)
     except Exception:
-        return _error(500, "Unable to finalize chat session", "INTERNAL_SERVER_ERROR")
+        return _error(500, 'Unable to finalize chat session', 'INTERNAL_SERVER_ERROR')
