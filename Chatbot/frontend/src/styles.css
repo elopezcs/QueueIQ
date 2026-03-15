@@ -1736,6 +1736,70 @@ select, input {
   box-shadow: 0 10px 30px rgba(0, 91, 150, 0.08);
 }
 
+
+.role-summary-card {
+  padding: 22px 24px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #f7fbff 0%, #f6fcfb 52%, #eef8f7 100%);
+}
+
+.role-summary-copy {
+  width: 100%;
+}
+
+.role-summary-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 6px;
+}
+
+.role-summary-name {
+  margin: 0;
+  color: #17324d;
+  font-size: 34px;
+  line-height: 1.1;
+}
+
+.role-summary-email {
+  margin-top: 8px;
+  color: #496579;
+  font-size: 16px;
+}
+
+.role-summary-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.summary-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #d7e5ee;
+  color: #24455c;
+}
+
+.summary-meta-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6a8495;
+}
+
+.summary-meta-pill strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: #17324d;
+}
+
 .portal-panel {
   background: linear-gradient(180deg, #ffffff 0%, #f9fcff 100%);
 }
@@ -2562,6 +2626,10 @@ select, input {
   gap: 14px;
 }
 
+.profile-form-grid .field {
+  min-width: 0;
+}
+
 .profile-form-grid.two-column {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -2570,6 +2638,8 @@ select, input {
 .profile-form-grid input,
 .profile-form-grid select {
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .profile-form-grid textarea {
@@ -2595,6 +2665,15 @@ select, input {
   .profile-form-grid.two-column,
   .appointment-detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .role-summary-name-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .role-summary-name {
+    font-size: 28px;
   }
 
   .field-span-2 {

@@ -974,15 +974,29 @@ export default function AccountPage({
       ) : (
         <>
           <section className="panel account-panel">
-            <div className="account-summary enhanced-account-summary">
-              <div>
-                <div className="eyebrow-label">Signed In As</div>
-                <strong>{currentUser.full_name}</strong>
-                <div className="muted small">{currentUser.email}</div>
-                <div className="muted small">Role: {formatRoleLabel(currentUser.role)}</div>
-                <div className="muted small">Clinic: {resolveClinicLabel(clinics, currentUser.clinic_id)}</div>
+            <div className="account-summary enhanced-account-summary role-summary-card">
+              <div className="role-summary-copy">
+                <div className="eyebrow-label">Signed In Account</div>
+                <div className="role-summary-name-row">
+                  <h2 className="role-summary-name">{currentUser.full_name}</h2>
+                  <span className={`role-badge ${currentUser.role}`}>{formatRoleLabel(currentUser.role)}</span>
+                </div>
+                <div className="role-summary-email">{currentUser.email}</div>
+                <div className="role-summary-meta">
+                  <span className="summary-meta-pill">
+                    <span className="summary-meta-label">Role</span>
+                    <strong>{formatRoleLabel(currentUser.role)}</strong>
+                  </span>
+                  <span className="summary-meta-pill">
+                    <span className="summary-meta-label">Clinic</span>
+                    <strong>{resolveClinicLabel(clinics, currentUser.clinic_id)}</strong>
+                  </span>
+                  <span className="summary-meta-pill">
+                    <span className="summary-meta-label">Status</span>
+                    <strong>{currentUser.email_verified ? 'Verified' : 'Pending verification'}</strong>
+                  </span>
+                </div>
               </div>
-              <span className={`role-badge ${currentUser.role}`}>{formatRoleLabel(currentUser.role)}</span>
             </div>
           </section>
 
