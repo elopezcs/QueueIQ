@@ -105,6 +105,139 @@ function sectionCopy(currentUser, activeSection) {
   };
 }
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isValidEmail(value) {
+  return EMAIL_PATTERN.test(String(value || '').trim());
+}
+
+function validateLoginForm(form) {
+  const email = String(form.email || '').trim();
+  const password = String(form.password || '');
+  if (!email) {
+    return 'Enter your email address.';
+  }
+  if (!isValidEmail(email)) {
+    return 'Enter a valid email address.';
+  }
+  if (!password.trim()) {
+    return 'Enter your password.';
+  }
+  return '';
+}
+
+function validateRegisterForm(form) {
+  const fullName = String(form.fullName || '').trim();
+  const email = String(form.email || '').trim();
+  const password = String(form.password || '');
+  if (fullName.length < 2) {
+    return 'Enter your full name.';
+  }
+  if (!email) {
+    return 'Enter your email address.';
+  }
+  if (!isValidEmail(email)) {
+    return 'Enter a valid email address.';
+  }
+  if (password.trim().length < 8) {
+    return 'Password must be at least 8 characters.';
+  }
+  return '';
+}
+
+function validateStaffForm(form) {
+  const fullName = String(form.fullName || '').trim();
+  const email = String(form.email || '').trim();
+  const password = String(form.password || '');
+  if (fullName.length < 2) {
+    return 'Enter the staff member full name.';
+  }
+  if (!email) {
+    return 'Enter the staff member email address.';
+  }
+  if (!isValidEmail(email)) {
+    return 'Enter a valid staff email address.';
+  }
+  if (password.trim().length < 8) {
+    return 'Temporary password must be at least 8 characters.';
+  }
+  if (!String(form.clinicId || '').trim()) {
+    return 'Choose a clinic assignment.';
+  }
+  return '';
+}
+
+function validateStaffSearch(form) {
+  if (form.scheduledFrom && form.scheduledTo) {
+    const from = new Date(form.scheduledFrom).getTime();
+    const to = new Date(form.scheduledTo).getTime();
+    if (Number.isFinite(from) && Number.isFinite(to) && from > to) {
+      return 'The start date must be earlier than the end date.';
+    }
+  }
+  return '';
+}
+
+function collectLoginErrors(form) {
+  const errors = {};
+  const email = String(form.email || '').trim();
+  const password = String(form.password || '');
+  if (!email) {
+    errors.email = 'Enter your email address.';
+  } else if (!isValidEmail(email)) {
+    errors.email = 'Enter a valid email address.';
+  }
+  if (!password.trim()) {
+    errors.password = 'Enter your password.';
+  }
+  return errors;
+}
+
+function collectRegisterErrors(form) {
+  const errors = {};
+  const fullName = String(form.fullName || '').trim();
+  const email = String(form.email || '').trim();
+  const password = String(form.password || '');
+  if (fullName.length < 2) {
+    errors.fullName = 'Enter your full name.';
+  }
+  if (!email) {
+    errors.email = 'Enter your email address.';
+  } else if (!isValidEmail(email)) {
+    errors.email = 'Enter a valid email address.';
+  }
+  if (password.trim().length < 8) {
+    errors.password = 'Password must be at least 8 characters.';
+  }
+  return errors;
+}
+
+function collectStaffFormErrors(form) {
+  const errors = {};
+  const fullName = String(form.fullName || '').trim();
+  const email = String(form.email || '').trim();
+  const password = String(form.password || '');
+  if (fullName.length < 2) {
+    errors.fullName = 'Enter the staff member full name.';
+  }
+  if (!email) {
+    errors.email = 'Enter the staff member email address.';
+  } else if (!isValidEmail(email)) {
+    errors.email = 'Enter a valid staff email address.';
+  }
+  if (password.trim().length < 8) {
+    errors.password = 'Temporary password must be at least 8 characters.';
+  }
+  if (!String(form.clinicId || '').trim()) {
+    errors.clinicId = 'Choose a clinic assignment.';
+  }
+  return errors;
+}
+
+function hasFieldErrors(errors) {
+  return Object.values(errors).some(Boolean);
+}
+
 function AppointmentList({ clinics, appointments, emptyMessage }) {
   if (!appointments.length) {
     return <p className="muted">{emptyMessage}</p>;
@@ -285,6 +418,7 @@ function ManagerStaffDirectory({ clinics, directory, loading, error }) {
 
 function AddMemberModal({ clinics, isOpen, onClose, onCreateStaff, staffCreationLoading, staffCreationNotice }) {
   const [staffForm, setStaffForm] = useState({ fullName: '', email: '', password: '', clinicId: clinics[0]?.id || '' });
+  const [staffFormErrors, setStaffFormErrors] = useState({});
 
   useEffect(() => {
     if (clinics.length && !staffForm.clinicId) {
@@ -295,6 +429,7 @@ function AddMemberModal({ clinics, isOpen, onClose, onCreateStaff, staffCreation
   useEffect(() => {
     if (!isOpen) {
       setStaffForm((current) => ({ ...current, fullName: '', email: '', password: '' }));
+      setStaffFormErrors({});
     }
   }, [isOpen]);
 
@@ -302,11 +437,28 @@ function AddMemberModal({ clinics, isOpen, onClose, onCreateStaff, staffCreation
     return null;
   }
 
+  function updateStaffField(field, value) {
+    setStaffForm((current) => ({ ...current, [field]: value }));
+    setStaffFormErrors((current) => ({ ...current, [field]: '' }));
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
-    const success = await onCreateStaff(staffForm);
+    const nextForm = {
+      fullName: String(staffForm.fullName || '').trim(),
+      email: String(staffForm.email || '').trim(),
+      password: String(staffForm.password || ''),
+      clinicId: String(staffForm.clinicId || '').trim(),
+    };
+    const nextErrors = collectStaffFormErrors(nextForm);
+    if (hasFieldErrors(nextErrors)) {
+      setStaffFormErrors(nextErrors);
+      return;
+    }
+    const success = await onCreateStaff(nextForm);
     if (success) {
-      setStaffForm((current) => ({ ...current, fullName: '', email: '', password: '' }));
+      setStaffForm({ fullName: '', email: '', password: '', clinicId: nextForm.clinicId || clinics[0]?.id || '' });
+      setStaffFormErrors({});
       onClose();
     }
   }
@@ -324,28 +476,32 @@ function AddMemberModal({ clinics, isOpen, onClose, onCreateStaff, staffCreation
           </button>
         </div>
 
-        <form className="auth-card add-member-form" onSubmit={handleSubmit}>
+        <form className="auth-card add-member-form" onSubmit={handleSubmit} noValidate>
           <div className="field">
             <label htmlFor="modal-staff-name">Full name</label>
-            <input id="modal-staff-name" type="text" value={staffForm.fullName} onChange={(event) => setStaffForm((current) => ({ ...current, fullName: event.target.value }))} />
+            <input id="modal-staff-name" type="text" value={staffForm.fullName} onChange={(event) => updateStaffField('fullName', event.target.value)} required minLength={2} className={staffFormErrors.fullName ? 'input-error' : ''} />
+            {staffFormErrors.fullName ? <div className="field-error-text">{staffFormErrors.fullName}</div> : null}
           </div>
           <div className="field">
             <label htmlFor="modal-staff-email">Email</label>
-            <input id="modal-staff-email" type="email" value={staffForm.email} onChange={(event) => setStaffForm((current) => ({ ...current, email: event.target.value }))} />
+            <input id="modal-staff-email" type="email" value={staffForm.email} onChange={(event) => updateStaffField('email', event.target.value)} required className={staffFormErrors.email ? 'input-error' : ''} />
+            {staffFormErrors.email ? <div className="field-error-text">{staffFormErrors.email}</div> : null}
           </div>
           <div className="field">
             <label htmlFor="modal-staff-password">Temporary password</label>
-            <input id="modal-staff-password" type="password" value={staffForm.password} onChange={(event) => setStaffForm((current) => ({ ...current, password: event.target.value }))} />
+            <input id="modal-staff-password" type="password" value={staffForm.password} onChange={(event) => updateStaffField('password', event.target.value)} required minLength={8} className={staffFormErrors.password ? 'input-error' : ''} />
+            {staffFormErrors.password ? <div className="field-error-text">{staffFormErrors.password}</div> : null}
           </div>
           <div className="field">
             <label htmlFor="modal-staff-clinic">Clinic assignment</label>
-            <select id="modal-staff-clinic" value={staffForm.clinicId} onChange={(event) => setStaffForm((current) => ({ ...current, clinicId: event.target.value }))}>
+            <select id="modal-staff-clinic" value={staffForm.clinicId} onChange={(event) => updateStaffField('clinicId', event.target.value)} required className={staffFormErrors.clinicId ? 'input-error' : ''}>
               {clinics.map((clinic) => (
                 <option key={clinic.id} value={clinic.id}>
                   {clinic.name}
                 </option>
               ))}
             </select>
+            {staffFormErrors.clinicId ? <div className="field-error-text">{staffFormErrors.clinicId}</div> : null}
           </div>
           {staffCreationNotice ? <div className={`inline-notice ${staffCreationNotice.toLowerCase().includes('added') ? '' : 'error'}`}>{staffCreationNotice}</div> : null}
           <button className="btn" type="submit" disabled={staffCreationLoading}>{staffCreationLoading ? 'Creating...' : 'Create Staff Account'}</button>
@@ -394,22 +550,71 @@ export default function AccountPage({
 }) {
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [registerForm, setRegisterForm] = useState({ fullName: '', email: '', password: '' });
+  const [loginErrors, setLoginErrors] = useState({});
+  const [registerErrors, setRegisterErrors] = useState({});
+  const [staffSearchValidationError, setStaffSearchValidationError] = useState('');
   const heroCopy = sectionCopy(currentUser, activeSection);
+
+  function updateLoginField(field, value) {
+    setLoginForm((current) => ({ ...current, [field]: value }));
+    setLoginErrors((current) => ({ ...current, [field]: '' }));
+  }
+
+  function updateRegisterField(field, value) {
+    setRegisterForm((current) => ({ ...current, [field]: value }));
+    setRegisterErrors((current) => ({ ...current, [field]: '' }));
+  }
 
   async function handleLoginSubmit(event) {
     event.preventDefault();
-    const success = await onLogin(loginForm);
+    const nextForm = {
+      email: String(loginForm.email || '').trim(),
+      password: String(loginForm.password || ''),
+    };
+    const nextErrors = collectLoginErrors(nextForm);
+    if (hasFieldErrors(nextErrors)) {
+      setLoginErrors(nextErrors);
+      return;
+    }
+    const success = await onLogin(nextForm);
     if (success) {
       setLoginForm({ email: '', password: '' });
+      setLoginErrors({});
     }
   }
 
   async function handleRegisterSubmit(event) {
     event.preventDefault();
-    const success = await onRegister(registerForm);
+    const nextForm = {
+      fullName: String(registerForm.fullName || '').trim(),
+      email: String(registerForm.email || '').trim(),
+      password: String(registerForm.password || ''),
+    };
+    const nextErrors = collectRegisterErrors(nextForm);
+    if (hasFieldErrors(nextErrors)) {
+      setRegisterErrors(nextErrors);
+      return;
+    }
+    const success = await onRegister(nextForm);
     if (success) {
       setRegisterForm({ fullName: '', email: '', password: '' });
+      setRegisterErrors({});
     }
+  }
+
+  function handleStaffSearchSubmitClick() {
+    const validationError = validateStaffSearch(staffSearch);
+    if (validationError) {
+      setStaffSearchValidationError(validationError);
+      return;
+    }
+    setStaffSearchValidationError('');
+    onStaffSearchSubmit();
+  }
+
+  function handleStaffSearchResetClick() {
+    setStaffSearchValidationError('');
+    onStaffSearchReset();
   }
 
   return (
@@ -422,51 +627,58 @@ export default function AccountPage({
       {!currentUser ? (
         <>
           <section className="panel account-panel">
-            <div className="panel-heading-row">
+            <div className="panel-heading-row auth-panel-header">
               <div>
                 <h2 className="section-title">Access Portal</h2>
                 <p className="section-subtitle">Patients can register here directly. Staff and manager access starts from login.</p>
               </div>
             </div>
             {bookingIntentActive ? <div className="inline-notice">Sign in or register as a patient to finish booking the appointment you just assessed in the chatbot.</div> : null}
+
             <div className="auth-entry-grid">
-              <form className="auth-card" onSubmit={handleLoginSubmit}>
+              <form className="auth-card" onSubmit={handleLoginSubmit} noValidate>
                 <div>
                   <div className="eyebrow-label">Login</div>
                   <h3>Sign in to an existing account</h3>
                 </div>
                 <div className="field">
                   <label htmlFor="login-email">Email</label>
-                  <input id="login-email" type="email" value={loginForm.email} onChange={(event) => setLoginForm((current) => ({ ...current, email: event.target.value }))} />
+                  <input id="login-email" type="email" value={loginForm.email} onChange={(event) => updateLoginField('email', event.target.value)} className={loginErrors.email ? 'input-error' : ''} autoComplete="email" />
+                  {loginErrors.email ? <div className="field-error-text">{loginErrors.email}</div> : null}
                 </div>
                 <div className="field">
                   <label htmlFor="login-password">Password</label>
-                  <input id="login-password" type="password" value={loginForm.password} onChange={(event) => setLoginForm((current) => ({ ...current, password: event.target.value }))} />
+                  <input id="login-password" type="password" value={loginForm.password} onChange={(event) => updateLoginField('password', event.target.value)} className={loginErrors.password ? 'input-error' : ''} autoComplete="current-password" />
+                  {loginErrors.password ? <div className="field-error-text">{loginErrors.password}</div> : null}
                 </div>
                 <button className="btn" type="submit" disabled={authLoading}>Log In</button>
               </form>
 
-              <form className="auth-card" onSubmit={handleRegisterSubmit}>
+              <form className="auth-card" onSubmit={handleRegisterSubmit} noValidate>
                 <div>
                   <div className="eyebrow-label">Register</div>
                   <h3>Create a new patient account</h3>
                 </div>
                 <div className="field">
                   <label htmlFor="register-name">Full name</label>
-                  <input id="register-name" type="text" value={registerForm.fullName} onChange={(event) => setRegisterForm((current) => ({ ...current, fullName: event.target.value }))} />
+                  <input id="register-name" type="text" value={registerForm.fullName} onChange={(event) => updateRegisterField('fullName', event.target.value)} className={registerErrors.fullName ? 'input-error' : ''} autoComplete="name" />
+                  {registerErrors.fullName ? <div className="field-error-text">{registerErrors.fullName}</div> : null}
                 </div>
                 <div className="field">
                   <label htmlFor="register-email">Email</label>
-                  <input id="register-email" type="email" value={registerForm.email} onChange={(event) => setRegisterForm((current) => ({ ...current, email: event.target.value }))} />
+                  <input id="register-email" type="email" value={registerForm.email} onChange={(event) => updateRegisterField('email', event.target.value)} className={registerErrors.email ? 'input-error' : ''} autoComplete="email" />
+                  {registerErrors.email ? <div className="field-error-text">{registerErrors.email}</div> : null}
                 </div>
                 <div className="field">
                   <label htmlFor="register-password">Password</label>
-                  <input id="register-password" type="password" value={registerForm.password} onChange={(event) => setRegisterForm((current) => ({ ...current, password: event.target.value }))} />
+                  <input id="register-password" type="password" value={registerForm.password} onChange={(event) => updateRegisterField('password', event.target.value)} className={registerErrors.password ? 'input-error' : ''} autoComplete="new-password" />
+                  {registerErrors.password ? <div className="field-error-text">{registerErrors.password}</div> : null}
                 </div>
                 <div className="inline-notice">Managers create staff accounts from the Add Member dashboard, so public registration stays patient-only.</div>
                 <button className="btn" type="submit" disabled={authLoading}>Register As Patient</button>
               </form>
             </div>
+
             {authError ? <div className="inline-notice error">{authError}</div> : null}
           </section>
 
@@ -570,8 +782,8 @@ export default function AccountPage({
                       </select>
                     </div>
                     <div className="refined-search-actions">
-                      <button className="btn" type="button" onClick={onStaffSearchSubmit}>Search</button>
-                      <button className="btn secondary" type="button" onClick={onStaffSearchReset}>Reset</button>
+                      <button className="btn" type="button" onClick={handleStaffSearchSubmitClick}>Search</button>
+                      <button className="btn secondary" type="button" onClick={handleStaffSearchResetClick}>Reset</button>
                     </div>
                   </div>
 
@@ -586,6 +798,7 @@ export default function AccountPage({
                     </div>
                   </div>
                 </div>
+                {staffSearchValidationError ? <div className="field-error-text">{staffSearchValidationError}</div> : null}
               </div>
 
               <div className="auth-card staff-results-panel">
