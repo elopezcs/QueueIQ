@@ -195,6 +195,95 @@ After startup, confirm these URLs load:
 - QueueControl backend docs: `http://127.0.0.1:8001/docs`
 - QueueControl dashboard: `http://127.0.0.1:8501`
 
+## Local Auth Database
+
+The Chatbot login, registration, sessions, and appointment data are stored in a local SQLite database at `Chatbot/backend/app.db`.
+
+Important notes:
+- The file is created automatically the first time the Chatbot backend starts.
+- Demo users and local auth data are seeded into this database during local setup.
+- If you want a clean local auth database, delete `Chatbot/backend/app.db` and start the app again.
+
+Reset the database:
+
+Windows PowerShell:
+
+```powershell
+Remove-Item Chatbot\backend\app.db -Force
+.\.venv\Scripts\python.exe app.py
+```
+
+macOS or Linux:
+
+```bash
+rm -f Chatbot/backend/app.db
+./.venv/bin/python app.py
+```
+
+## View Database Tables And Content
+
+If `sqlite3` is installed on your machine, you can inspect the database directly.
+
+Windows PowerShell, macOS, or Linux:
+
+```bash
+sqlite3 Chatbot/backend/app.db
+```
+
+Inside the SQLite prompt, useful commands are:
+
+```sql
+.tables
+.schema patients
+SELECT * FROM patients;
+SELECT * FROM appointments;
+SELECT * FROM auth_sessions;
+```
+
+If `sqlite3` is not installed, use Python from the shared virtual environment.
+
+List all tables:
+
+Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\python.exe -c "import sqlite3; conn=sqlite3.connect('Chatbot/backend/app.db'); print([row[0] for row in conn.execute(\"SELECT name FROM sqlite_master WHERE type='table' ORDER BY name\")])"
+```
+
+macOS or Linux:
+
+```bash
+./.venv/bin/python -c "import sqlite3; conn=sqlite3.connect('Chatbot/backend/app.db'); print([row[0] for row in conn.execute(\"SELECT name FROM sqlite_master WHERE type='table' ORDER BY name\")])"
+```
+
+View patient accounts:
+
+Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\python.exe -c "import sqlite3; conn=sqlite3.connect('Chatbot/backend/app.db'); rows=conn.execute(\"SELECT patient_id, full_name, email, role, clinic_id FROM patients ORDER BY created_at DESC LIMIT 20\").fetchall(); print(rows)"
+```
+
+macOS or Linux:
+
+```bash
+./.venv/bin/python -c "import sqlite3; conn=sqlite3.connect('Chatbot/backend/app.db'); rows=conn.execute(\"SELECT patient_id, full_name, email, role, clinic_id FROM patients ORDER BY created_at DESC LIMIT 20\").fetchall(); print(rows)"
+```
+
+View appointments:
+
+Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\python.exe -c "import sqlite3; conn=sqlite3.connect('Chatbot/backend/app.db'); rows=conn.execute(\"SELECT appointment_id, patient_id, clinic_id, scheduled_for, status, description FROM appointments ORDER BY scheduled_for DESC LIMIT 20\").fetchall(); print(rows)"
+```
+
+macOS or Linux:
+
+```bash
+./.venv/bin/python -c "import sqlite3; conn=sqlite3.connect('Chatbot/backend/app.db'); rows=conn.execute(\"SELECT appointment_id, patient_id, clinic_id, scheduled_for, status, description FROM appointments ORDER BY scheduled_for DESC LIMIT 20\").fetchall(); print(rows)"
+```
+
 ## Notes
 
 - The launcher skips services that are already reachable on their expected ports.
