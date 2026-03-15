@@ -1,6 +1,6 @@
 import React from "react";
 
-export default function ResultsView({ results, clinic }) {
+export default function ResultsView({ results, clinic, onBookNow, bookingLoading, bookingNotice }) {
   if (!results) {
     return (
       <div>
@@ -10,24 +10,21 @@ export default function ResultsView({ results, clinic }) {
     );
   }
 
-  // Helper function to capitalize the first letter of a string
   const capitalizeFirstLetter = (string) => {
     if (!string) return string;
     return string.charAt(0).toUpperCase() + string.slice(1);
   };
 
-  // Helper function to get estimated time
   const getEstimatedTime = (minutes) => {
     const date = new Date(Date.now() + minutes * 60000);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  // Helper function to format minutes into hours and minutes
   const formatWaitTime = (totalMinutes) => {
     if (!totalMinutes) return "0 mins";
     const hours = Math.floor(totalMinutes / 60);
     const minutes = totalMinutes % 60;
-    
+
     if (hours > 0) {
       const hrStr = `${hours} hr${hours > 1 ? 's' : ''}`;
       const minStr = minutes > 0 ? ` ${minutes} min${minutes > 1 ? 's' : ''}` : '';
@@ -38,7 +35,18 @@ export default function ResultsView({ results, clinic }) {
 
   return (
     <div>
-      <h2>Results</h2>
+      <div className="results-header-grid">
+        <div className="results-header-copy">
+          <h2>Results</h2>
+          <p className="muted results-header-hint">Review the queue estimate, then book now to save this assessment as an appointment.</p>
+        </div>
+        <div className="results-header-action">
+          <button className="btn results-book-now-button" onClick={onBookNow} disabled={bookingLoading}>
+            {bookingLoading ? 'Booking...' : 'Book Now'}
+          </button>
+          <div className="muted small results-action-hint">If you are not signed in as a patient, QueueIQ will take you to login or registration first.</div>
+        </div>
+      </div>
 
       {clinic && (
         <div className="card" style={{ marginBottom: '24px', borderLeft: '4px solid var(--color-azure)' }}>
@@ -89,11 +97,13 @@ export default function ResultsView({ results, clinic }) {
           <div className="disclaimer-title">Important</div>
           <div className="disclaimer-subtitle">This is not a diagnosis. Wait-time estimates are not guaranteed.</div>
           <div className="disclaimer-list">
-            <div>• This tool provides operational guidance only. It is not a medical diagnosis.</div>
-            <div>• If you think this is an emergency or severe, seek urgent in-person care or call local emergency services.</div>
-            <div>• Wait-time estimates are not guaranteed and may change.</div>
+            <div>- This tool provides operational guidance only. It is not a medical diagnosis.</div>
+            <div>- If you think this is an emergency or severe, seek urgent in-person care or call local emergency services.</div>
+            <div>- Wait-time estimates are not guaranteed and may change.</div>
           </div>
         </div>
+
+        {bookingNotice ? <div className={`inline-notice ${bookingNotice.toLowerCase().includes('success') ? '' : 'error'}`}>{bookingNotice}</div> : null}
 
         <div className="section muted small" style={{ marginTop: '16px' }}>
           run_id: {results.run_id}

@@ -585,14 +585,13 @@ export default function App() {
         {results ? (
           <section className="grid">
             <div className="panel">
-              <ResultsView results={results} clinic={selectedClinic} />
-              <div className="results-booking-cta">
-                <button className="btn" onClick={handleBookAppointmentFromResults} disabled={bookingLoading}>
-                  {bookingLoading ? 'Booking...' : 'Book Appointment'}
-                </button>
-                <div className="muted small">Book directly from this final result. If you are not signed in as a patient, QueueIQ will take you to login or registration first.</div>
-                {bookingNotice ? <div className={`inline-notice ${bookingNotice.toLowerCase().includes('success') ? '' : 'error'}`}>{bookingNotice}</div> : null}
-              </div>
+              <ResultsView
+                results={results}
+                clinic={selectedClinic}
+                onBookNow={handleBookAppointmentFromResults}
+                bookingLoading={bookingLoading}
+                bookingNotice={bookingNotice}
+              />
             </div>
           </section>
         ) : null}

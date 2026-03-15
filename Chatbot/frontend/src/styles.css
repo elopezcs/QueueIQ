@@ -2295,12 +2295,45 @@ select, input {
   }
 }
 
-.results-booking-cta {
-  margin-top: 24px;
-  padding-top: 20px;
-  border-top: 1px solid #e4edf2;
+.results-header-grid {
   display: grid;
-  gap: 12px;
+  grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  gap: 20px;
+  align-items: start;
+  margin-bottom: 20px;
+}
+
+.results-header-copy h2 {
+  margin: 0 0 8px 0;
+}
+
+.results-header-hint {
+  margin: 0;
+  max-width: 720px;
+  line-height: 1.6;
+}
+
+.results-header-action {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.results-book-now-button {
+  width: 100%;
+  min-height: 48px;
+  font-size: 16px;
+}
+
+.results-action-hint {
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .results-header-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 
