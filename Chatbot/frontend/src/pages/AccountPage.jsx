@@ -1083,39 +1083,39 @@ export default function AccountPage({
                   <div>
                     <div className="eyebrow-label">Search Filters</div>
                     <h3>Find appointments</h3>
+                    <p className="search-panel-hint">Search your clinic schedule by patient, time range, and appointment window.</p>
                   </div>
                   <div className="compact-search-clinic">Assigned clinic: {resolveClinicLabel(clinics, currentUser.clinic_id)}</div>
                 </div>
 
-                <div className="refined-search-layout">
-                  <div className="refined-search-row refined-search-row-primary">
-                    <div className="field refined-search-field refined-search-field-query">
-                      <label htmlFor="staff-patient-query">Patient name or email</label>
-                      <input id="staff-patient-query" type="text" value={staffSearch.patientQuery} onChange={(event) => onStaffSearchChange('patientQuery', event.target.value)} placeholder="Search by patient name or email" />
-                    </div>
-                    <div className="field refined-search-field refined-search-field-bucket">
-                      <label htmlFor="staff-time-bucket">Time range</label>
-                      <select id="staff-time-bucket" value={staffSearch.timeBucket} onChange={(event) => onStaffSearchChange('timeBucket', event.target.value)}>
-                        <option value="today">Today</option>
-                        <option value="upcoming">Upcoming</option>
-                        <option value="past">Past</option>
-                      </select>
-                    </div>
-                    <div className="refined-search-actions">
-                      <button className="btn" type="button" onClick={handleStaffSearchSubmitClick}>Search</button>
-                      <button className="btn secondary" type="button" onClick={handleStaffSearchResetClick}>Reset</button>
-                    </div>
+                <div className="refined-search-layout refined-search-toolbar-layout">
+                  <div className="field refined-search-field refined-search-field-query refined-search-field-card">
+                    <label htmlFor="staff-patient-query">Patient name or email</label>
+                    <input id="staff-patient-query" type="text" value={staffSearch.patientQuery} onChange={(event) => onStaffSearchChange('patientQuery', event.target.value)} placeholder="Search by patient name or email" />
                   </div>
 
-                  <div className="refined-search-row refined-search-row-secondary">
-                    <div className="field refined-search-field refined-search-field-date">
-                      <label htmlFor="staff-scheduled-from">From</label>
-                      <input id="staff-scheduled-from" type="datetime-local" value={staffSearch.scheduledFrom} onChange={(event) => onStaffSearchChange('scheduledFrom', event.target.value)} />
-                    </div>
-                    <div className="field refined-search-field refined-search-field-date">
-                      <label htmlFor="staff-scheduled-to">To</label>
-                      <input id="staff-scheduled-to" type="datetime-local" value={staffSearch.scheduledTo} onChange={(event) => onStaffSearchChange('scheduledTo', event.target.value)} />
-                    </div>
+                  <div className="field refined-search-field refined-search-field-bucket refined-search-field-card">
+                    <label htmlFor="staff-time-bucket">Time range</label>
+                    <select id="staff-time-bucket" value={staffSearch.timeBucket} onChange={(event) => onStaffSearchChange('timeBucket', event.target.value)}>
+                      <option value="today">Today</option>
+                      <option value="upcoming">Upcoming</option>
+                      <option value="past">Past</option>
+                    </select>
+                  </div>
+
+                  <div className="refined-search-actions refined-search-actions-card">
+                    <button className="btn" type="button" onClick={handleStaffSearchSubmitClick}>Search</button>
+                    <button className="btn secondary" type="button" onClick={handleStaffSearchResetClick}>Reset</button>
+                  </div>
+
+                  <div className="field refined-search-field refined-search-field-date refined-search-field-card">
+                    <label htmlFor="staff-scheduled-from">From</label>
+                    <input id="staff-scheduled-from" type="datetime-local" value={staffSearch.scheduledFrom} onChange={(event) => onStaffSearchChange('scheduledFrom', event.target.value)} />
+                  </div>
+
+                  <div className="field refined-search-field refined-search-field-date refined-search-field-card">
+                    <label htmlFor="staff-scheduled-to">To</label>
+                    <input id="staff-scheduled-to" type="datetime-local" value={staffSearch.scheduledTo} onChange={(event) => onStaffSearchChange('scheduledTo', event.target.value)} />
                   </div>
                 </div>
                 {staffSearchValidationError ? <div className="field-error-text">{staffSearchValidationError}</div> : null}
@@ -1163,41 +1163,52 @@ export default function AccountPage({
           ) : null}
 
           {currentUser.role === 'manager' && activeSection === 'add-member' ? (
-            <section className="panel account-panel">
-              <div className="panel-heading-row">
+            <section className="panel account-panel manager-dashboard-panel">
+              <div className="manager-dashboard-hero">
                 <div>
+                  <div className="eyebrow-label">Manager Workspace</div>
                   <h2 className="section-title">Add Member Dashboard</h2>
-                  <p className="section-subtitle">Search existing staff members, filter by clinic, and open the add-member form whenever a new staff account is needed.</p>
+                  <p className="section-subtitle">Manage clinic staffing with one place to search existing team members, review assignments, and create new staff accounts.</p>
                 </div>
-                <button type="button" className="btn" onClick={onOpenAddMemberForm}>
+                <button type="button" className="btn manager-primary-action" onClick={onOpenAddMemberForm}>
                   Add Member
                 </button>
               </div>
 
-              <div className="manager-search-grid">
-                <div className="field">
-                  <label htmlFor="member-query">Search staff</label>
-                  <input id="member-query" type="text" value={managerStaffFilters.query} onChange={(event) => onManagerStaffFilterChange('query', event.target.value)} placeholder="Search by name or email" />
+              <div className="manager-filter-panel">
+                <div className="manager-filter-topline">
+                  <div>
+                    <div className="eyebrow-label">Staff Directory Filters</div>
+                    <h3>Find team members</h3>
+                    <p className="search-panel-hint">Search across staff names, emails, and clinic assignments.</p>
+                  </div>
+                  <div className="manager-results-pill">{managerStaffDirectory.total_results || 0} staff members found</div>
                 </div>
-                <div className="field">
-                  <label htmlFor="member-clinic">Clinic</label>
-                  <select id="member-clinic" value={managerStaffFilters.clinicId} onChange={(event) => onManagerStaffFilterChange('clinicId', event.target.value)}>
-                    <option value="">All clinics</option>
-                    {clinics.map((clinic) => (
-                      <option key={clinic.id} value={clinic.id}>
-                        {clinic.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="manager-search-actions">
-                  <button type="button" className="btn secondary" onClick={onManagerStaffFilterReset}>
-                    Reset Search
-                  </button>
+
+                <div className="manager-search-grid manager-search-toolbar-grid">
+                  <div className="field manager-search-card manager-search-card-wide">
+                    <label htmlFor="member-query">Search staff</label>
+                    <input id="member-query" type="text" value={managerStaffFilters.query} onChange={(event) => onManagerStaffFilterChange('query', event.target.value)} placeholder="Search by name or email" />
+                  </div>
+                  <div className="field manager-search-card">
+                    <label htmlFor="member-clinic">Clinic</label>
+                    <select id="member-clinic" value={managerStaffFilters.clinicId} onChange={(event) => onManagerStaffFilterChange('clinicId', event.target.value)}>
+                      <option value="">All clinics</option>
+                      {clinics.map((clinic) => (
+                        <option key={clinic.id} value={clinic.id}>
+                          {clinic.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="manager-search-actions manager-search-card">
+                    <button type="button" className="btn secondary" onClick={onManagerStaffFilterReset}>
+                      Reset Search
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              <div className="muted small">{managerStaffDirectory.total_results || 0} staff members found</div>
               <ManagerStaffDirectory clinics={clinics} directory={managerStaffDirectory} loading={managerStaffLoading} error={managerStaffError} />
 
               <AddMemberModal
