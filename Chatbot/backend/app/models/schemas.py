@@ -63,6 +63,41 @@ class ChatEndOut(BaseModel):
     run_id: str
 
 
+class PatientMedicalProfileOut(BaseModel):
+    date_of_birth: str | None = None
+    sex: str | None = None
+    height_cm: float | None = None
+    weight_kg: float | None = None
+    blood_group: str | None = None
+    allergies: str | None = None
+    medications: str | None = None
+    chronic_conditions: str | None = None
+    past_surgeries: str | None = None
+    primary_physician: str | None = None
+    emergency_contact_name: str | None = None
+    emergency_contact_phone: str | None = None
+    smoking_status: str | None = None
+    pregnancy_status: str | None = None
+    mobility_notes: str | None = None
+    medical_notes: str | None = None
+
+
+class StaffProfessionalProfileOut(BaseModel):
+    job_title: str | None = None
+    department: str | None = None
+    license_type: str | None = None
+    license_number: str | None = None
+    license_expiry: str | None = None
+    specialty: str | None = None
+    certifications: str | None = None
+    years_experience: float | None = None
+    languages_spoken: str | None = None
+    shift_preference: str | None = None
+    supervisor_name: str | None = None
+    employment_start_date: str | None = None
+    staff_notes: str | None = None
+
+
 class PatientProfileOut(BaseModel):
     patient_id: str
     full_name: str
@@ -71,6 +106,8 @@ class PatientProfileOut(BaseModel):
     is_admin: bool
     role: UserRole
     clinic_id: str | None = None
+    medical_profile: PatientMedicalProfileOut | None = None
+    professional_profile: StaffProfessionalProfileOut | None = None
 
 
 class StaffMemberOut(BaseModel):

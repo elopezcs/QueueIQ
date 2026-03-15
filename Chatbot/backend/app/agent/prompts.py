@@ -13,7 +13,13 @@ You MUST follow these rules:
 """
 
 
-def prompt_next_question(clinic_context: str, transcript: str, turn_count: int, max_turns: int) -> str:
+def _patient_context_block(patient_context: str | None) -> str:
+    if not patient_context:
+        return 'Known patient context:\nNone provided.'
+    return f'Known patient context:\n{patient_context}'
+
+
+def prompt_next_question(clinic_context: str, transcript: str, turn_count: int, max_turns: int, patient_context: str | None = None) -> str:
     return f"""
 {SYSTEM_POLICY}
 
@@ -24,6 +30,7 @@ Constraints:
 - Ask ONE question at a time.
 - If enough info has been collected, output STOP.
 - If you detect emergency-like content, output SAFETY.
+- Use known patient history only to personalize operational intake and avoid repeating obvious background questions.
 
 Return JSON only with this schema:
 {{
@@ -35,6 +42,8 @@ Return JSON only with this schema:
 Clinic context:
 {clinic_context}
 
+{_patient_context_block(patient_context)}
+
 Turn: {turn_count}/{max_turns}
 
 Transcript:
@@ -42,7 +51,7 @@ Transcript:
 """.strip()
 
 
-def prompt_final_classification(clinic_context: str, transcript: str) -> str:
+def prompt_final_classification(clinic_context: str, transcript: str, patient_context: str | None = None) -> str:
     return f"""
 {SYSTEM_POLICY}
 
@@ -60,6 +69,8 @@ Return JSON only with this schema:
 
 Clinic context:
 {clinic_context}
+
+{_patient_context_block(patient_context)}
 
 Transcript:
 {transcript}

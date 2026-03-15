@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS patients (
   role TEXT NOT NULL DEFAULT 'patient',
   clinic_id TEXT,
   password_hash TEXT,
+  medical_profile_json TEXT,
+  professional_profile_json TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   last_login_at TEXT
@@ -70,6 +72,7 @@ CREATE TABLE IF NOT EXISTS appointments (
   session_id TEXT,
   scheduled_for TEXT NOT NULL,
   status TEXT NOT NULL,
+  description TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   FOREIGN KEY(patient_id) REFERENCES patients(patient_id),

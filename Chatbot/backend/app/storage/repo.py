@@ -38,7 +38,7 @@ def _demo_user_index(patient_id: str) -> int | None:
 
 PATIENT_SELECT_COLUMNS = (
     'patient_id, full_name, email, email_verified, is_admin, role, clinic_id, '
-    'password_hash, created_at, updated_at, last_login_at'
+    'password_hash, medical_profile_json, professional_profile_json, created_at, updated_at, last_login_at'
 )
 ADMIN_ROLES = {'manager'}
 
@@ -52,6 +52,52 @@ def _normalized_role(role: str | None, *, fallback_is_admin: bool = False) -> st
 
 def _is_admin_role(role: str | None) -> bool:
     return _normalized_role(role) in ADMIN_ROLES
+
+
+def _parse_profile_blob(raw_value: str | None) -> dict[str, Any] | None:
+    if not raw_value:
+        return None
+    try:
+        parsed = json.loads(raw_value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _serialize_profile_blob(profile: dict[str, Any] | None) -> str | None:
+    if not profile:
+        return None
+    cleaned = {key: value for key, value in profile.items() if value not in (None, '', [])}
+    return json.dumps(cleaned, ensure_ascii=False) if cleaned else None
+
+
+def _parse_medical_profile(raw_value: str | None) -> dict[str, Any] | None:
+    return _parse_profile_blob(raw_value)
+
+
+def _serialize_medical_profile(profile: dict[str, Any] | None) -> str | None:
+    return _serialize_profile_blob(profile)
+
+
+def _parse_professional_profile(raw_value: str | None) -> dict[str, Any] | None:
+    return _parse_profile_blob(raw_value)
+
+
+def _serialize_professional_profile(profile: dict[str, Any] | None) -> str | None:
+    return _serialize_profile_blob(profile)
+
+
+def _format_recent_history_for_context(appointments: list[dict[str, Any]]) -> str:
+    if not appointments:
+        return 'No prior appointment history on file.'
+    lines = []
+    for appointment in appointments[:5]:
+        scheduled_for = str(appointment.get('scheduled_for') or '').strip()
+        description = str(appointment.get('description') or 'No description recorded').strip()
+        status = str(appointment.get('status') or 'unknown').strip()
+        clinic_id = str(appointment.get('clinic_id') or 'unknown').strip()
+        lines.append(f'- {scheduled_for} | {clinic_id} | {status} | {description}')
+    return '\n'.join(lines)
 
 
 class SessionRepo:
@@ -198,10 +244,12 @@ class PatientRepo:
                 if resolved_role != 'staff':
                     resolved_clinic_id = None
                 resolved_password_hash = password_hash if password_hash is not None else existing.get('password_hash')
+                resolved_medical_profile = existing.get('medical_profile_json')
+                resolved_professional_profile = existing.get('professional_profile_json')
                 conn.execute(
                     '''
                     UPDATE patients
-                    SET full_name=?, email_verified=?, is_admin=?, role=?, clinic_id=?, password_hash=?, updated_at=?
+                    SET full_name=?, email_verified=?, is_admin=?, role=?, clinic_id=?, password_hash=?, medical_profile_json=?, professional_profile_json=?, updated_at=?
                     WHERE patient_id=?
                     ''',
                     (
@@ -211,6 +259,8 @@ class PatientRepo:
                         resolved_role,
                         resolved_clinic_id,
                         resolved_password_hash,
+                        resolved_medical_profile,
+                        resolved_professional_profile,
                         now,
                         existing['patient_id'],
                     ),
@@ -225,8 +275,8 @@ class PatientRepo:
             conn.execute(
                 '''
                 INSERT INTO patients(
-                    patient_id, full_name, email, email_verified, is_admin, role, clinic_id, password_hash, created_at, updated_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?)
+                    patient_id, full_name, email, email_verified, is_admin, role, clinic_id, password_hash, medical_profile_json, professional_profile_json, created_at, updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
                 ''',
                 (
                     new_patient_id,
@@ -237,6 +287,8 @@ class PatientRepo:
                     resolved_role,
                     resolved_clinic_id,
                     password_hash,
+                    None,
+                    None,
                     now,
                     now,
                 ),
@@ -337,7 +389,7 @@ class PatientRepo:
             row = conn.execute(
                 '''
                 SELECT p.patient_id, p.full_name, p.email, p.email_verified, p.is_admin, p.role, p.clinic_id,
-                       p.password_hash, p.created_at, p.updated_at, p.last_login_at
+                       p.password_hash, p.medical_profile_json, p.professional_profile_json, p.created_at, p.updated_at, p.last_login_at
                 FROM auth_sessions s
                 JOIN patients p ON p.patient_id = s.patient_id
                 WHERE s.token=? AND s.expires_at >= ?
@@ -356,6 +408,94 @@ class PatientRepo:
             conn.commit()
         finally:
             conn.close()
+
+    def get_medical_profile(self, patient_id: str) -> dict[str, Any] | None:
+        patient = self.get_patient_by_id(patient_id)
+        if not patient:
+            return None
+        return _parse_medical_profile(patient.get('medical_profile_json'))
+
+    def get_professional_profile(self, patient_id: str) -> dict[str, Any] | None:
+        patient = self.get_patient_by_id(patient_id)
+        if not patient:
+            return None
+        return _parse_professional_profile(patient.get('professional_profile_json'))
+
+    def update_profile(
+        self,
+        patient_id: str,
+        *,
+        full_name: str | None = None,
+        medical_profile: dict[str, Any] | None = None,
+        professional_profile: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        patient = self.get_patient_by_id(patient_id)
+        if not patient:
+            return None
+
+        conn = get_conn()
+        now = utc_now_iso()
+        try:
+            conn.execute(
+                'UPDATE patients SET full_name=?, medical_profile_json=?, professional_profile_json=?, updated_at=? WHERE patient_id=?',
+                (
+                    full_name if full_name is not None else patient.get('full_name'),
+                    _serialize_medical_profile(medical_profile) if medical_profile is not None else patient.get('medical_profile_json'),
+                    _serialize_professional_profile(professional_profile) if professional_profile is not None else patient.get('professional_profile_json'),
+                    now,
+                    patient_id,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return self.get_patient_by_id(patient_id)
+
+    def update_medical_profile(self, patient_id: str, profile: dict[str, Any]) -> dict[str, Any] | None:
+        return self.update_profile(patient_id, medical_profile=profile)
+
+    def update_professional_profile(self, patient_id: str, profile: dict[str, Any]) -> dict[str, Any] | None:
+        return self.update_profile(patient_id, professional_profile=profile)
+
+    def build_patient_chat_context(self, patient_id: str) -> str:
+        patient = self.get_patient_by_id(patient_id)
+        if not patient:
+            return 'No patient profile is available.'
+
+        profile = _parse_medical_profile(patient.get('medical_profile_json')) or {}
+        profile_lines = []
+        ordered_fields = [
+            ('date_of_birth', 'Date of birth'),
+            ('sex', 'Sex'),
+            ('height_cm', 'Height (cm)'),
+            ('weight_kg', 'Weight (kg)'),
+            ('blood_group', 'Blood group'),
+            ('allergies', 'Allergies'),
+            ('medications', 'Current medications'),
+            ('chronic_conditions', 'Chronic conditions'),
+            ('past_surgeries', 'Past surgeries'),
+            ('primary_physician', 'Primary physician'),
+            ('smoking_status', 'Smoking status'),
+            ('pregnancy_status', 'Pregnancy status'),
+            ('mobility_notes', 'Mobility notes'),
+            ('medical_notes', 'Medical notes'),
+        ]
+        for key, label in ordered_fields:
+            value = profile.get(key)
+            if value not in (None, '', []):
+                profile_lines.append(f'- {label}: {value}')
+
+        appointment_history = AppointmentRepo().list_appointments_for_patient(patient_id)
+        past_history = [appointment for appointment in appointment_history if str(appointment.get('status') or '').lower() != 'scheduled']
+
+        patient_name = patient.get('full_name') or patient.get('email') or patient_id
+        sections = [f'Patient on file: {patient_name}']
+        sections.append('Stored profile details:' if profile_lines else 'Stored profile details: none provided.')
+        if profile_lines:
+            sections.extend(profile_lines)
+        sections.append('Recent appointment history:')
+        sections.append(_format_recent_history_for_context(past_history))
+        return '\n'.join(sections)
 
     def list_staff_members(self, query: str | None = None, clinic_id: str | None = None) -> list[dict[str, Any]]:
         conn = get_conn()

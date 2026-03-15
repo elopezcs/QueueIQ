@@ -119,6 +119,14 @@ export async function getMe() {
   });
 }
 
+export async function updateMyProfile(payload) {
+  return apiFetch('/auth/me', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function logout() {
   return apiFetch('/auth/logout', {
     method: 'POST',

@@ -2,6 +2,43 @@ import React, { useEffect, useState } from 'react';
 
 const QUEUECONTROL_DASHBOARD_URL = 'http://127.0.0.1:8501';
 
+const EMPTY_PATIENT_PROFILE = {
+  fullName: '',
+  dateOfBirth: '',
+  sex: '',
+  heightCm: '',
+  weightKg: '',
+  bloodGroup: '',
+  allergies: '',
+  medications: '',
+  chronicConditions: '',
+  pastSurgeries: '',
+  primaryPhysician: '',
+  emergencyContactName: '',
+  emergencyContactPhone: '',
+  smokingStatus: '',
+  pregnancyStatus: '',
+  mobilityNotes: '',
+  medicalNotes: '',
+};
+
+const EMPTY_STAFF_PROFILE = {
+  fullName: '',
+  jobTitle: '',
+  department: '',
+  licenseType: '',
+  licenseNumber: '',
+  licenseExpiry: '',
+  specialty: '',
+  certifications: '',
+  yearsExperience: '',
+  languagesSpoken: '',
+  shiftPreference: '',
+  supervisorName: '',
+  employmentStartDate: '',
+  staffNotes: '',
+};
+
 function formatDateTime(value) {
   if (!value) {
     return 'Not available';
@@ -10,6 +47,28 @@ function formatDateTime(value) {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function formatDateOnly(value) {
+  if (!value) {
+    return 'Not available';
+  }
+  return new Date(value).toLocaleDateString([], {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function formatTimeOnly(value) {
+  if (!value) {
+    return 'Not available';
+  }
+  return new Date(value).toLocaleTimeString([], {
     hour: 'numeric',
     minute: '2-digit',
   });
@@ -238,6 +297,74 @@ function hasFieldErrors(errors) {
   return Object.values(errors).some(Boolean);
 }
 
+function normalizePatientProfile(currentUser) {
+  const profile = currentUser?.medical_profile || {};
+  return {
+    fullName: currentUser?.full_name || '',
+    dateOfBirth: profile.date_of_birth || '',
+    sex: profile.sex || '',
+    heightCm: profile.height_cm ?? '',
+    weightKg: profile.weight_kg ?? '',
+    bloodGroup: profile.blood_group || '',
+    allergies: profile.allergies || '',
+    medications: profile.medications || '',
+    chronicConditions: profile.chronic_conditions || '',
+    pastSurgeries: profile.past_surgeries || '',
+    primaryPhysician: profile.primary_physician || '',
+    emergencyContactName: profile.emergency_contact_name || '',
+    emergencyContactPhone: profile.emergency_contact_phone || '',
+    smokingStatus: profile.smoking_status || '',
+    pregnancyStatus: profile.pregnancy_status || '',
+    mobilityNotes: profile.mobility_notes || '',
+    medicalNotes: profile.medical_notes || '',
+  };
+}
+
+function normalizeStaffProfile(currentUser) {
+  const profile = currentUser?.professional_profile || {};
+  return {
+    fullName: currentUser?.full_name || '',
+    jobTitle: profile.job_title || '',
+    department: profile.department || '',
+    licenseType: profile.license_type || '',
+    licenseNumber: profile.license_number || '',
+    licenseExpiry: profile.license_expiry || '',
+    specialty: profile.specialty || '',
+    certifications: profile.certifications || '',
+    yearsExperience: profile.years_experience ?? '',
+    languagesSpoken: profile.languages_spoken || '',
+    shiftPreference: profile.shift_preference || '',
+    supervisorName: profile.supervisor_name || '',
+    employmentStartDate: profile.employment_start_date || '',
+    staffNotes: profile.staff_notes || '',
+  };
+}
+
+function collectPatientProfileErrors(form) {
+  const errors = {};
+  if (String(form.fullName || '').trim().length < 2) {
+    errors.fullName = 'Enter your full name.';
+  }
+  if (form.heightCm !== '' && Number(form.heightCm) <= 0) {
+    errors.heightCm = 'Enter a valid height.';
+  }
+  if (form.weightKg !== '' && Number(form.weightKg) <= 0) {
+    errors.weightKg = 'Enter a valid weight.';
+  }
+  return errors;
+}
+
+function collectStaffProfileErrors(form) {
+  const errors = {};
+  if (String(form.fullName || '').trim().length < 2) {
+    errors.fullName = 'Enter your full name.';
+  }
+  if (form.yearsExperience !== '' && Number(form.yearsExperience) < 0) {
+    errors.yearsExperience = 'Years of experience cannot be negative.';
+  }
+  return errors;
+}
+
 function AppointmentList({ clinics, appointments, emptyMessage }) {
   if (!appointments.length) {
     return <p className="muted">{emptyMessage}</p>;
@@ -255,11 +382,19 @@ function AppointmentList({ clinics, appointments, emptyMessage }) {
             <div className="history-entry-topline">
               <div>
                 <h4>{resolveClinicLabel(clinics, appointment.clinic_id)}</h4>
-                <div className="muted small">{formatDateTime(appointment.scheduled_for)}</div>
+                <div className="muted small">Booked for {formatDateTime(appointment.scheduled_for)}</div>
               </div>
               <span className={`status-pill ${appointment.status === 'scheduled' ? 'scheduled' : 'completed'}`}>{appointment.status}</span>
             </div>
-            <div className="history-entry-details">
+            <div className="history-entry-details appointment-detail-grid">
+              <div>
+                <span className="meta-label">Date</span>
+                <span>{formatDateOnly(appointment.scheduled_for)}</span>
+              </div>
+              <div>
+                <span className="meta-label">Time</span>
+                <span>{formatTimeOnly(appointment.scheduled_for)}</span>
+              </div>
               <div>
                 <span className="meta-label">Relative</span>
                 <span>{relativeLabel(appointment.scheduled_for)}</span>
@@ -321,7 +456,8 @@ function StaffResultsTable({ clinics, staffAppointments }) {
             <th>Patient</th>
             <th>Email</th>
             <th>Clinic</th>
-            <th>Scheduled</th>
+            <th>Date</th>
+            <th>Time</th>
             <th>Status</th>
             <th>Description</th>
           </tr>
@@ -332,7 +468,8 @@ function StaffResultsTable({ clinics, staffAppointments }) {
               <td>{appointment.full_name}</td>
               <td>{appointment.email}</td>
               <td>{resolveClinicLabel(clinics, appointment.clinic_id)}</td>
-              <td>{formatDateTime(appointment.scheduled_for)}</td>
+              <td>{formatDateOnly(appointment.scheduled_for)}</td>
+              <td>{formatTimeOnly(appointment.scheduled_for)}</td>
               <td>{appointment.status}</td>
               <td>{appointment.description || 'No description added.'}</td>
             </tr>
@@ -343,42 +480,184 @@ function StaffResultsTable({ clinics, staffAppointments }) {
   );
 }
 
-function ProfileSection({ clinics, currentUser, onBeginBookingJourney, showBookingButton }) {
+function ProfileIdentityCard({ clinics, currentUser }) {
+  return (
+    <article className="auth-card profile-identity-card">
+      <div className="eyebrow-label">Account</div>
+      <h3>{currentUser.full_name}</h3>
+      <div className="profile-meta-row">
+        <span>Email</span>
+        <strong>{currentUser.email}</strong>
+      </div>
+      <div className="profile-meta-row">
+        <span>Role</span>
+        <strong>{formatRoleLabel(currentUser.role)}</strong>
+      </div>
+      <div className="profile-meta-row">
+        <span>Email verified</span>
+        <strong>{currentUser.email_verified ? 'Yes' : 'No'}</strong>
+      </div>
+      <div className="profile-meta-row">
+        <span>Clinic</span>
+        <strong>{resolveClinicLabel(clinics, currentUser.clinic_id)}</strong>
+      </div>
+    </article>
+  );
+}
+
+function PatientProfileSection({ clinics, currentUser, onBeginBookingJourney, onUpdateProfile, profileSaving, profileNotice }) {
+  const [form, setForm] = useState(EMPTY_PATIENT_PROFILE);
+  const [errors, setErrors] = useState({});
+
+  useEffect(() => {
+    setForm(normalizePatientProfile(currentUser));
+    setErrors({});
+  }, [currentUser]);
+
+  function updateField(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+    setErrors((current) => ({ ...current, [field]: '' }));
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    const nextErrors = collectPatientProfileErrors(form);
+    if (hasFieldErrors(nextErrors)) {
+      setErrors(nextErrors);
+      return;
+    }
+    await onUpdateProfile({
+      full_name: form.fullName.trim(),
+      date_of_birth: form.dateOfBirth,
+      sex: form.sex,
+      height_cm: form.heightCm === '' ? null : Number(form.heightCm),
+      weight_kg: form.weightKg === '' ? null : Number(form.weightKg),
+      blood_group: form.bloodGroup,
+      allergies: form.allergies,
+      medications: form.medications,
+      chronic_conditions: form.chronicConditions,
+      past_surgeries: form.pastSurgeries,
+      primary_physician: form.primaryPhysician,
+      emergency_contact_name: form.emergencyContactName,
+      emergency_contact_phone: form.emergencyContactPhone,
+      smoking_status: form.smokingStatus,
+      pregnancy_status: form.pregnancyStatus,
+      mobility_notes: form.mobilityNotes,
+      medical_notes: form.medicalNotes,
+    });
+  }
+
   return (
     <section className="panel account-panel">
-      <div className="panel-heading-row">
+      <div className="panel-heading-row profile-header-row">
         <div>
           <h2 className="section-title">Profile</h2>
-          <p className="section-subtitle">This summary reflects the account and clinic access you are currently using.</p>
-          {showBookingButton ? <div className="muted small">Book Appointment takes you back to the home page and opens the chatbot intake flow.</div> : null}
+          <p className="section-subtitle">Keep your saved health background up to date so the chatbot can personalize future intake questions.</p>
+          <div className="muted small">Book Appointment takes you back to the home page and opens the chatbot intake flow.</div>
         </div>
-        {showBookingButton ? (
-          <button type="button" className="btn" onClick={onBeginBookingJourney}>
-            Book Appointment
-          </button>
-        ) : null}
+        <button type="button" className="btn" onClick={onBeginBookingJourney}>Book Appointment</button>
       </div>
-      <div className="profile-grid">
-        <article className="auth-card">
-          <div className="eyebrow-label">Account</div>
-          <h3>{currentUser.full_name}</h3>
-          <div className="profile-meta-row">
-            <span>Email</span>
-            <strong>{currentUser.email}</strong>
+      <div className="profile-layout-grid">
+        <ProfileIdentityCard clinics={clinics} currentUser={currentUser} />
+        <form className="auth-card profile-editor-card" onSubmit={handleSubmit} noValidate>
+          <div><div className="eyebrow-label">Health Profile</div><h3>Update personal and medical details</h3></div>
+          <div className="profile-form-grid two-column">
+            <div className="field"><label htmlFor="patient-full-name">Full name</label><input id="patient-full-name" type="text" value={form.fullName} onChange={(event) => updateField('fullName', event.target.value)} className={errors.fullName ? 'input-error' : ''} />{errors.fullName ? <div className="field-error-text">{errors.fullName}</div> : null}</div>
+            <div className="field"><label htmlFor="patient-dob">Date of birth</label><input id="patient-dob" type="date" value={form.dateOfBirth} onChange={(event) => updateField('dateOfBirth', event.target.value)} /></div>
+            <div className="field"><label htmlFor="patient-sex">Sex</label><input id="patient-sex" type="text" value={form.sex} onChange={(event) => updateField('sex', event.target.value)} /></div>
+            <div className="field"><label htmlFor="patient-blood-group">Blood group</label><input id="patient-blood-group" type="text" value={form.bloodGroup} onChange={(event) => updateField('bloodGroup', event.target.value)} /></div>
+            <div className="field"><label htmlFor="patient-height">Height (cm)</label><input id="patient-height" type="number" min="0" step="0.1" value={form.heightCm} onChange={(event) => updateField('heightCm', event.target.value)} className={errors.heightCm ? 'input-error' : ''} />{errors.heightCm ? <div className="field-error-text">{errors.heightCm}</div> : null}</div>
+            <div className="field"><label htmlFor="patient-weight">Weight (kg)</label><input id="patient-weight" type="number" min="0" step="0.1" value={form.weightKg} onChange={(event) => updateField('weightKg', event.target.value)} className={errors.weightKg ? 'input-error' : ''} />{errors.weightKg ? <div className="field-error-text">{errors.weightKg}</div> : null}</div>
+            <div className="field field-span-2"><label htmlFor="patient-allergies">Allergies</label><textarea id="patient-allergies" rows="3" value={form.allergies} onChange={(event) => updateField('allergies', event.target.value)} /></div>
+            <div className="field field-span-2"><label htmlFor="patient-medications">Current medications</label><textarea id="patient-medications" rows="3" value={form.medications} onChange={(event) => updateField('medications', event.target.value)} /></div>
+            <div className="field field-span-2"><label htmlFor="patient-conditions">Chronic conditions</label><textarea id="patient-conditions" rows="3" value={form.chronicConditions} onChange={(event) => updateField('chronicConditions', event.target.value)} /></div>
+            <div className="field field-span-2"><label htmlFor="patient-surgeries">Past surgeries</label><textarea id="patient-surgeries" rows="3" value={form.pastSurgeries} onChange={(event) => updateField('pastSurgeries', event.target.value)} /></div>
+            <div className="field"><label htmlFor="patient-physician">Primary physician</label><input id="patient-physician" type="text" value={form.primaryPhysician} onChange={(event) => updateField('primaryPhysician', event.target.value)} /></div>
+            <div className="field"><label htmlFor="patient-smoking">Smoking status</label><input id="patient-smoking" type="text" value={form.smokingStatus} onChange={(event) => updateField('smokingStatus', event.target.value)} /></div>
+            <div className="field"><label htmlFor="patient-emergency-name">Emergency contact name</label><input id="patient-emergency-name" type="text" value={form.emergencyContactName} onChange={(event) => updateField('emergencyContactName', event.target.value)} /></div>
+            <div className="field"><label htmlFor="patient-emergency-phone">Emergency contact phone</label><input id="patient-emergency-phone" type="text" value={form.emergencyContactPhone} onChange={(event) => updateField('emergencyContactPhone', event.target.value)} /></div>
+            <div className="field"><label htmlFor="patient-pregnancy">Pregnancy status</label><input id="patient-pregnancy" type="text" value={form.pregnancyStatus} onChange={(event) => updateField('pregnancyStatus', event.target.value)} /></div>
+            <div className="field"><label htmlFor="patient-mobility">Mobility notes</label><input id="patient-mobility" type="text" value={form.mobilityNotes} onChange={(event) => updateField('mobilityNotes', event.target.value)} /></div>
+            <div className="field field-span-2"><label htmlFor="patient-medical-notes">Additional medical notes</label><textarea id="patient-medical-notes" rows="4" value={form.medicalNotes} onChange={(event) => updateField('medicalNotes', event.target.value)} /></div>
           </div>
-          <div className="profile-meta-row">
-            <span>Role</span>
-            <strong>{formatRoleLabel(currentUser.role)}</strong>
+          {profileNotice ? <div className={`inline-notice ${profileNotice.toLowerCase().includes('success') ? '' : 'error'}`}>{profileNotice}</div> : null}
+          <button type="submit" className="btn" disabled={profileSaving}>{profileSaving ? 'Saving...' : 'Save Profile'}</button>
+        </form>
+      </div>
+    </section>
+  );
+}
+
+function StaffProfileSection({ clinics, currentUser, onUpdateProfile, profileSaving, profileNotice }) {
+  const [form, setForm] = useState(EMPTY_STAFF_PROFILE);
+  const [errors, setErrors] = useState({});
+
+  useEffect(() => {
+    setForm(normalizeStaffProfile(currentUser));
+    setErrors({});
+  }, [currentUser]);
+
+  function updateField(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+    setErrors((current) => ({ ...current, [field]: '' }));
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    const nextErrors = collectStaffProfileErrors(form);
+    if (hasFieldErrors(nextErrors)) {
+      setErrors(nextErrors);
+      return;
+    }
+    await onUpdateProfile({
+      full_name: form.fullName.trim(),
+      job_title: form.jobTitle,
+      department: form.department,
+      license_type: form.licenseType,
+      license_number: form.licenseNumber,
+      license_expiry: form.licenseExpiry,
+      specialty: form.specialty,
+      certifications: form.certifications,
+      years_experience: form.yearsExperience === '' ? null : Number(form.yearsExperience),
+      languages_spoken: form.languagesSpoken,
+      shift_preference: form.shiftPreference,
+      supervisor_name: form.supervisorName,
+      employment_start_date: form.employmentStartDate,
+      staff_notes: form.staffNotes,
+    });
+  }
+
+  return (
+    <section className="panel account-panel">
+      <div className="panel-heading-row profile-header-row">
+        <div>
+          <h2 className="section-title">Profile</h2>
+          <p className="section-subtitle">Keep your operational role, credentialing, and scheduling details current for the clinic team.</p>
+        </div>
+      </div>
+      <div className="profile-layout-grid">
+        <ProfileIdentityCard clinics={clinics} currentUser={currentUser} />
+        <form className="auth-card profile-editor-card" onSubmit={handleSubmit} noValidate>
+          <div><div className="eyebrow-label">Professional Profile</div><h3>Update staff details</h3></div>
+          <div className="profile-form-grid two-column">
+            <div className="field"><label htmlFor="staff-full-name">Full name</label><input id="staff-full-name" type="text" value={form.fullName} onChange={(event) => updateField('fullName', event.target.value)} className={errors.fullName ? 'input-error' : ''} />{errors.fullName ? <div className="field-error-text">{errors.fullName}</div> : null}</div>
+            <div className="field"><label htmlFor="staff-job-title">Job title</label><input id="staff-job-title" type="text" value={form.jobTitle} onChange={(event) => updateField('jobTitle', event.target.value)} /></div>
+            <div className="field"><label htmlFor="staff-department">Department</label><input id="staff-department" type="text" value={form.department} onChange={(event) => updateField('department', event.target.value)} /></div>
+            <div className="field"><label htmlFor="staff-specialty">Specialty</label><input id="staff-specialty" type="text" value={form.specialty} onChange={(event) => updateField('specialty', event.target.value)} /></div>
+            <div className="field"><label htmlFor="staff-license-type">License type</label><input id="staff-license-type" type="text" value={form.licenseType} onChange={(event) => updateField('licenseType', event.target.value)} /></div>
+            <div className="field"><label htmlFor="staff-license-number">License number</label><input id="staff-license-number" type="text" value={form.licenseNumber} onChange={(event) => updateField('licenseNumber', event.target.value)} /></div>
+            <div className="field"><label htmlFor="staff-license-expiry">License expiry</label><input id="staff-license-expiry" type="date" value={form.licenseExpiry} onChange={(event) => updateField('licenseExpiry', event.target.value)} /></div>
+            <div className="field"><label htmlFor="staff-experience">Years of experience</label><input id="staff-experience" type="number" min="0" step="0.1" value={form.yearsExperience} onChange={(event) => updateField('yearsExperience', event.target.value)} className={errors.yearsExperience ? 'input-error' : ''} />{errors.yearsExperience ? <div className="field-error-text">{errors.yearsExperience}</div> : null}</div>
+            <div className="field field-span-2"><label htmlFor="staff-certifications">Certifications</label><textarea id="staff-certifications" rows="3" value={form.certifications} onChange={(event) => updateField('certifications', event.target.value)} /></div>
+            <div className="field"><label htmlFor="staff-languages">Languages spoken</label><input id="staff-languages" type="text" value={form.languagesSpoken} onChange={(event) => updateField('languagesSpoken', event.target.value)} /></div>
+            <div className="field"><label htmlFor="staff-shift">Shift preference</label><input id="staff-shift" type="text" value={form.shiftPreference} onChange={(event) => updateField('shiftPreference', event.target.value)} /></div>
+            <div className="field"><label htmlFor="staff-supervisor">Supervisor name</label><input id="staff-supervisor" type="text" value={form.supervisorName} onChange={(event) => updateField('supervisorName', event.target.value)} /></div>
+            <div className="field"><label htmlFor="staff-employment-date">Employment start date</label><input id="staff-employment-date" type="date" value={form.employmentStartDate} onChange={(event) => updateField('employmentStartDate', event.target.value)} /></div>
+            <div className="field field-span-2"><label htmlFor="staff-notes">Staff notes</label><textarea id="staff-notes" rows="4" value={form.staffNotes} onChange={(event) => updateField('staffNotes', event.target.value)} /></div>
           </div>
-          <div className="profile-meta-row">
-            <span>Email verified</span>
-            <strong>{currentUser.email_verified ? 'Yes' : 'No'}</strong>
-          </div>
-          <div className="profile-meta-row">
-            <span>Clinic</span>
-            <strong>{resolveClinicLabel(clinics, currentUser.clinic_id)}</strong>
-          </div>
-        </article>
+          {profileNotice ? <div className={`inline-notice ${profileNotice.toLowerCase().includes('success') ? '' : 'error'}`}>{profileNotice}</div> : null}
+          <button type="submit" className="btn" disabled={profileSaving}>{profileSaving ? 'Saving...' : 'Save Profile'}</button>
+        </form>
       </div>
     </section>
   );
@@ -544,6 +823,9 @@ export default function AccountPage({
   onCreateStaff,
   staffCreationLoading,
   staffCreationNotice,
+  profileSaving,
+  profileNotice,
+  onUpdateProfile,
   isAddMemberFormOpen,
   onOpenAddMemberForm,
   onCloseAddMemberForm,
@@ -553,7 +835,12 @@ export default function AccountPage({
   const [loginErrors, setLoginErrors] = useState({});
   const [registerErrors, setRegisterErrors] = useState({});
   const [staffSearchValidationError, setStaffSearchValidationError] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
   const heroCopy = sectionCopy(currentUser, activeSection);
+
+  useEffect(() => {
+    setShowHistory(false);
+  }, [currentUser, activeSection]);
 
   function updateLoginField(field, value) {
     setLoginForm((current) => ({ ...current, [field]: value }));
@@ -736,18 +1023,37 @@ export default function AccountPage({
                       <h3>Scheduled ahead</h3>
                       <AppointmentList clinics={clinics} appointments={appointments.upcoming || []} emptyMessage="No upcoming appointments scheduled." />
                     </div>
-                    <div className="auth-card">
-                      <div className="eyebrow-label">History</div>
-                      <h3>Previous visits</h3>
-                      <AppointmentList clinics={clinics} appointments={appointments.past || []} emptyMessage="No appointment history yet." />
-                    </div>
                   </div>
                 )}
+                {!appointmentsLoading ? (
+                  <div className="history-toggle-block">
+                    <button type="button" className="btn secondary" onClick={() => setShowHistory((current) => !current)}>
+                      {showHistory ? 'Hide History' : 'See History'}
+                    </button>
+                    <span className="history-toggle-hint">{(appointments.past || []).length} previous appointment{(appointments.past || []).length === 1 ? '' : 's'} on record</span>
+                  </div>
+                ) : null}
+                {!appointmentsLoading && showHistory ? (
+                  <div className="auth-card history-panel-card">
+                    <div className="eyebrow-label">History</div>
+                    <h3>Previous visits</h3>
+                    <AppointmentList clinics={clinics} appointments={appointments.past || []} emptyMessage="No appointment history yet." />
+                  </div>
+                ) : null}
               </section>
             </>
           ) : null}
 
-          {currentUser.role === 'patient' && activeSection === 'profile' ? <ProfileSection clinics={clinics} currentUser={currentUser} onBeginBookingJourney={onBeginBookingJourney} showBookingButton /> : null}
+          {currentUser.role === 'patient' && activeSection === 'profile' ? (
+            <PatientProfileSection
+              clinics={clinics}
+              currentUser={currentUser}
+              onBeginBookingJourney={onBeginBookingJourney}
+              onUpdateProfile={onUpdateProfile}
+              profileSaving={profileSaving}
+              profileNotice={profileNotice}
+            />
+          ) : null}
 
           {currentUser.role === 'staff' && activeSection === 'dashboard' ? (
             <section className="panel account-panel">
@@ -811,7 +1117,15 @@ export default function AccountPage({
             </section>
           ) : null}
 
-          {currentUser.role === 'staff' && activeSection === 'profile' ? <ProfileSection clinics={clinics} currentUser={currentUser} /> : null}
+          {currentUser.role === 'staff' && activeSection === 'profile' ? (
+            <StaffProfileSection
+              clinics={clinics}
+              currentUser={currentUser}
+              onUpdateProfile={onUpdateProfile}
+              profileSaving={profileSaving}
+              profileNotice={profileNotice}
+            />
+          ) : null}
 
           {currentUser.role === 'manager' && activeSection === 'simulations' ? (
             <section className="panel account-panel">

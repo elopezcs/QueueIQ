@@ -1,3 +1,4 @@
+import json
 import secrets
 
 from fastapi import APIRouter, Request
@@ -22,14 +23,42 @@ from app.models.schemas import (
     AuthSessionOut,
     DemoUserOut,
     OtpRequestOut,
+    PatientMedicalProfileOut,
     PatientProfileOut,
     StaffDirectoryOut,
     StaffMemberOut,
+    StaffProfessionalProfileOut,
 )
 from app.services.emailer import send_otp_email
 from app.storage.repo import AppointmentRepo, PatientRepo, iso_after_hours, iso_after_minutes
 
 router = APIRouter(prefix='/auth', tags=['auth'])
+
+
+def _medical_profile(patient: dict) -> PatientMedicalProfileOut | None:
+    raw_value = patient.get('medical_profile_json')
+    if not raw_value:
+        return None
+    try:
+        parsed = json.loads(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return PatientMedicalProfileOut(**parsed)
+
+
+def _professional_profile(patient: dict) -> StaffProfessionalProfileOut | None:
+    raw_value = patient.get('professional_profile_json')
+    if not raw_value:
+        return None
+    try:
+        parsed = json.loads(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return StaffProfessionalProfileOut(**parsed)
 
 
 def _profile(patient: dict) -> PatientProfileOut:
@@ -41,6 +70,8 @@ def _profile(patient: dict) -> PatientProfileOut:
         is_admin=bool(patient['is_admin']),
         role=str(patient.get('role') or 'patient'),
         clinic_id=patient.get('clinic_id'),
+        medical_profile=_medical_profile(patient),
+        professional_profile=_professional_profile(patient),
     )
 
 
@@ -71,6 +102,92 @@ def _clean_staff_query(value: str | None):
     if len(cleaned) > 120:
         return error_response(422, 'query is too long', 'INVALID_FORMAT', 'query')
     return cleaned
+
+
+def _optional_profile_text(value: object, field: str, *, max_length: int = 240):
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return error_response(422, f'{field} must be a string', 'INVALID_FORMAT', field)
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if len(cleaned) > max_length:
+        return error_response(422, f'{field} is too long', 'INVALID_FORMAT', field)
+    return cleaned
+
+
+def _optional_profile_number(value: object, field: str, *, minimum: float = 0.0, maximum: float = 500.0):
+    if value in (None, ''):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return error_response(422, f'{field} must be a number', 'INVALID_FORMAT', field)
+    if number < minimum or number > maximum:
+        return error_response(422, f'{field} is out of range', 'INVALID_FORMAT', field)
+    return round(number, 1)
+
+
+def _parse_patient_profile_payload(body: dict[str, object]):
+    field_specs = {
+        'date_of_birth': ('text', 32),
+        'sex': ('text', 32),
+        'blood_group': ('text', 16),
+        'allergies': ('text', 500),
+        'medications': ('text', 500),
+        'chronic_conditions': ('text', 500),
+        'past_surgeries': ('text', 500),
+        'primary_physician': ('text', 120),
+        'emergency_contact_name': ('text', 120),
+        'emergency_contact_phone': ('text', 40),
+        'smoking_status': ('text', 40),
+        'pregnancy_status': ('text', 80),
+        'mobility_notes': ('text', 300),
+        'medical_notes': ('text', 800),
+        'height_cm': ('number', 30.0, 260.0),
+        'weight_kg': ('number', 2.0, 500.0),
+    }
+    parsed: dict[str, object] = {}
+    for field, spec in field_specs.items():
+        value = body.get(field)
+        if spec[0] == 'text':
+            result = _optional_profile_text(value, field, max_length=spec[1])
+        else:
+            result = _optional_profile_number(value, field, minimum=spec[1], maximum=spec[2])
+        if hasattr(result, 'status_code'):
+            return result
+        parsed[field] = result
+    return parsed
+
+
+def _parse_staff_profile_payload(body: dict[str, object]):
+    field_specs = {
+        'job_title': ('text', 120),
+        'department': ('text', 120),
+        'license_type': ('text', 80),
+        'license_number': ('text', 80),
+        'license_expiry': ('text', 32),
+        'specialty': ('text', 120),
+        'certifications': ('text', 500),
+        'years_experience': ('number', 0.0, 70.0),
+        'languages_spoken': ('text', 200),
+        'shift_preference': ('text', 120),
+        'supervisor_name': ('text', 120),
+        'employment_start_date': ('text', 32),
+        'staff_notes': ('text', 800),
+    }
+    parsed: dict[str, object] = {}
+    for field, spec in field_specs.items():
+        value = body.get(field)
+        if spec[0] == 'text':
+            result = _optional_profile_text(value, field, max_length=spec[1])
+        else:
+            result = _optional_profile_number(value, field, minimum=spec[1], maximum=spec[2])
+        if hasattr(result, 'status_code'):
+            return result
+        parsed[field] = result
+    return parsed
 
 
 @router.post('/register', response_model=AuthSessionOut)
@@ -311,6 +428,47 @@ async def me(request: Request):
     if not patient:
         return error_response(401, 'Authentication required', 'AUTH_REQUIRED')
     return _profile(patient)
+
+
+@router.patch('/me', response_model=PatientProfileOut)
+async def update_me(request: Request):
+    patient = get_authenticated_patient(request)
+    if not patient:
+        return error_response(401, 'Authentication required', 'AUTH_REQUIRED')
+
+    body = await get_json_body(request)
+    if body is None:
+        return error_response(400, 'Request body must be a JSON object', 'INVALID_JSON')
+
+    repo = PatientRepo()
+    full_name = None
+    if 'full_name' in body:
+        full_name = validate_optional_name(body.get('full_name'))
+        if hasattr(full_name, 'status_code'):
+            return full_name
+
+    role = str(patient.get('role') or 'patient').lower()
+    medical_profile = None
+    professional_profile = None
+
+    if role == 'patient':
+        medical_profile = _parse_patient_profile_payload(body)
+        if hasattr(medical_profile, 'status_code'):
+            return medical_profile
+    elif role == 'staff':
+        professional_profile = _parse_staff_profile_payload(body)
+        if hasattr(professional_profile, 'status_code'):
+            return professional_profile
+
+    updated = repo.update_profile(
+        patient['patient_id'],
+        full_name=full_name if isinstance(full_name, str) else None,
+        medical_profile=medical_profile if isinstance(medical_profile, dict) else None,
+        professional_profile=professional_profile if isinstance(professional_profile, dict) else None,
+    )
+    if not updated:
+        return error_response(404, 'Profile not found', 'NOT_FOUND')
+    return _profile(updated)
 
 
 @router.post('/logout')

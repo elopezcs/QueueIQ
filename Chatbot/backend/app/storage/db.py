@@ -44,6 +44,8 @@ def init_db() -> None:
         _ensure_column(conn, 'patients', 'role', "TEXT NOT NULL DEFAULT 'patient'")
         _ensure_column(conn, 'patients', 'clinic_id', 'TEXT')
         _ensure_column(conn, 'patients', 'password_hash', 'TEXT')
+        _ensure_column(conn, 'patients', 'medical_profile_json', 'TEXT')
+        _ensure_column(conn, 'patients', 'professional_profile_json', 'TEXT')
         _ensure_column(conn, 'appointments', 'description', 'TEXT')
         conn.execute(
             """

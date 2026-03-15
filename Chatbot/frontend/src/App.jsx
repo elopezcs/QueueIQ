@@ -18,6 +18,7 @@ import {
   registerAccount,
   setStoredToken,
   startChat,
+  updateMyProfile,
 } from './api.js';
 import Navigation from './components/Navigation.jsx';
 import ClinicSelector from './components/ClinicSelector.jsx';
@@ -134,6 +135,8 @@ export default function App() {
 
   const [staffCreationLoading, setStaffCreationLoading] = useState(false);
   const [staffCreationNotice, setStaffCreationNotice] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileNotice, setProfileNotice] = useState('');
 
   const hasSession = useMemo(() => Boolean(sessionId), [sessionId]);
   const selectedClinic = useMemo(() => clinics.find((clinic) => clinic.id === clinicId) || null, [clinics, clinicId]);
@@ -173,6 +176,7 @@ export default function App() {
     setManagerStaffError('');
     setIsAddMemberFormOpen(false);
     setStaffCreationNotice('');
+    setProfileNotice('');
   }
 
   async function refreshManagerStaffDirectory(filters = managerStaffFilters) {
@@ -389,6 +393,23 @@ export default function App() {
       return false;
     } finally {
       setStaffCreationLoading(false);
+    }
+  }
+
+  async function handleUpdateProfile(payload) {
+    setProfileSaving(true);
+    setProfileNotice('');
+    try {
+      const updated = await updateMyProfile(payload);
+      setCurrentUser(updated);
+      setProfileNotice('Profile updated successfully.');
+      return { ok: true, patient: updated };
+    } catch (error) {
+      const message = error.message || 'Unable to update profile';
+      setProfileNotice(message);
+      return { ok: false, message };
+    } finally {
+      setProfileSaving(false);
     }
   }
 
@@ -673,6 +694,9 @@ export default function App() {
           onCreateStaff={handleCreateStaff}
           staffCreationLoading={staffCreationLoading}
           staffCreationNotice={staffCreationNotice}
+          profileSaving={profileSaving}
+          profileNotice={profileNotice}
+          onUpdateProfile={handleUpdateProfile}
           isAddMemberFormOpen={isAddMemberFormOpen}
           onOpenAddMemberForm={() => setIsAddMemberFormOpen(true)}
           onCloseAddMemberForm={() => setIsAddMemberFormOpen(false)}
