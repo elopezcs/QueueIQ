@@ -152,6 +152,15 @@ export default function App() {
     [disclaimers],
   );
 
+  const userTurnCount = useMemo(
+    () => messages.filter((message) => message.role === 'user').length,
+    [messages],
+  );
+  const canFinishAssessment = useMemo(
+    () => hasSession && !results && done && userTurnCount > 0 && !loading,
+    [done, hasSession, loading, results, userTurnCount],
+  );
+
   function handleReset() {
     setSessionId('');
     setMessages([]);
@@ -460,7 +469,7 @@ export default function App() {
   }
 
   async function handleFinish() {
-    if (!hasSession) {
+    if (!canFinishAssessment) {
       return;
     }
 
@@ -577,8 +586,8 @@ export default function App() {
                 ) : (
                   <>
                     {!results ? (
-                      <button className="btn" onClick={handleFinish} disabled={loading}>
-                        Finish
+                      <button className="btn" onClick={() => setIsModalOpen(true)} disabled={loading}>
+                        {done ? 'Review chat' : 'Resume intake'}
                       </button>
                     ) : null}
                     <button className="btn secondary" onClick={handleReset} disabled={loading}>
