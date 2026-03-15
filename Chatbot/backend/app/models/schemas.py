@@ -47,6 +47,9 @@ class ChatEndIn(BaseModel):
 
 
 UrgencyBand = Literal['low', 'medium', 'high']
+UserRole = Literal['patient', 'staff', 'manager']
+AppointmentStatus = Literal['scheduled', 'completed', 'cancelled']
+AppointmentTimeBucket = Literal['today', 'upcoming', 'past']
 
 
 class ChatEndOut(BaseModel):
@@ -66,6 +69,27 @@ class PatientProfileOut(BaseModel):
     email: str
     email_verified: bool
     is_admin: bool
+    role: UserRole
+    clinic_id: str | None = None
+
+
+class StaffMemberOut(BaseModel):
+    patient_id: str
+    full_name: str
+    email: str
+    role: UserRole
+    clinic_id: str | None = None
+    email_verified: bool
+    created_at: str
+    updated_at: str
+    last_login_at: str | None = None
+
+
+class StaffDirectoryOut(BaseModel):
+    clinic_id: str | None = None
+    query: str | None = None
+    total_results: int
+    results: list[StaffMemberOut]
 
 
 class OtpRequestOut(BaseModel):
@@ -79,9 +103,6 @@ class AuthSessionOut(BaseModel):
     patient: PatientProfileOut
 
 
-AppointmentStatus = Literal['scheduled', 'completed', 'cancelled']
-
-
 class AppointmentOut(BaseModel):
     appointment_id: str
     patient_id: str
@@ -89,13 +110,39 @@ class AppointmentOut(BaseModel):
     session_id: str | None = None
     scheduled_for: str
     status: AppointmentStatus
+    description: str | None = None
     created_at: str
     updated_at: str
 
 
 class AppointmentListOut(BaseModel):
+    current: list[AppointmentOut]
     upcoming: list[AppointmentOut]
     past: list[AppointmentOut]
+
+
+class AdminAppointmentOut(BaseModel):
+    appointment_id: str
+    patient_id: str
+    full_name: str | None = None
+    email: str | None = None
+    clinic_id: str
+    session_id: str | None = None
+    scheduled_for: str
+    status: AppointmentStatus
+    description: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class AdminAppointmentSearchOut(BaseModel):
+    clinic_id: str | None = None
+    time_bucket: AppointmentTimeBucket
+    patient_query: str | None = None
+    scheduled_from: str | None = None
+    scheduled_to: str | None = None
+    total_results: int
+    results: list[AdminAppointmentOut]
 
 
 class AdminResultOut(BaseModel):
@@ -128,3 +175,5 @@ class DemoUserOut(BaseModel):
     full_name: str
     email: str
     is_admin: bool
+    role: UserRole
+    clinic_id: str | None = None

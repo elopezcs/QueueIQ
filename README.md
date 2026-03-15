@@ -202,3 +202,4 @@ After startup, confirm these URLs load:
 - Chatbot CORS now allows both `http://localhost:5173` and `http://127.0.0.1:5173`.
 - `Chatbot/frontend/node_modules` must exist for the launcher to start the frontend.
 - `QueueControl/models/queueiq_xgb_model.joblib` must exist for the queue simulator to start.
+

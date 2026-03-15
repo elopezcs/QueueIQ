@@ -1,4 +1,5 @@
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000';
+const DEFAULT_API_BASE = `${window.location.protocol}//${window.location.hostname}:8000`;
+const API_BASE = import.meta.env.VITE_API_BASE || DEFAULT_API_BASE;
 const AUTH_TOKEN_KEY = 'queueiq_auth_token';
 
 function getErrorMessage(payload, fallback) {
@@ -49,6 +50,61 @@ export async function getDemoUsers() {
   return apiFetch('/auth/demo-users');
 }
 
+export async function registerAccount(payload) {
+  return apiFetch('/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      full_name: payload.fullName,
+      email: payload.email,
+      password: payload.password,
+    }),
+  });
+}
+
+export async function createStaffAccount(payload) {
+  return apiFetch('/auth/staff', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({
+      full_name: payload.fullName,
+      email: payload.email,
+      password: payload.password,
+      clinic_id: payload.clinicId,
+    }),
+  });
+}
+
+export async function getStaffMembers(filters = {}) {
+  const queryParams = new URLSearchParams();
+  const entries = {
+    query: filters.query || '',
+    clinic_id: filters.clinicId || '',
+  };
+
+  Object.entries(entries).forEach(([key, value]) => {
+    if (value) {
+      queryParams.set(key, value);
+    }
+  });
+
+  const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+  return apiFetch(`/auth/staff-members${query}`, {
+    headers: { ...authHeaders() },
+  });
+}
+
+export async function loginAccount(payload) {
+  return apiFetch('/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: payload.email,
+      password: payload.password,
+    }),
+  });
+}
+
 export async function demoLogin(email) {
   return apiFetch('/auth/demo-login', {
     method: 'POST',
@@ -76,36 +132,36 @@ export async function getMyAppointments() {
   });
 }
 
-export async function createAppointment(clinicId, scheduledFor, sessionId) {
+export async function getStaffAppointments(filters = {}) {
+  const queryParams = new URLSearchParams();
+  const entries = {
+    time_bucket: filters.timeBucket || 'today',
+    patient_query: filters.patientQuery || '',
+    scheduled_from: filters.scheduledFrom || '',
+    scheduled_to: filters.scheduledTo || '',
+  };
+
+  Object.entries(entries).forEach(([key, value]) => {
+    if (value) {
+      queryParams.set(key, value);
+    }
+  });
+
+  return apiFetch(`/staff/appointments?${queryParams.toString()}`, {
+    headers: { ...authHeaders() },
+  });
+}
+
+export async function createAppointment(clinicId, scheduledFor, description, sessionId) {
   return apiFetch('/appointments', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({
       clinic_id: clinicId,
       scheduled_for: scheduledFor,
+      description: description || null,
       session_id: sessionId || null,
     }),
-  });
-}
-
-export async function getAdminResults(filters = {}) {
-  const queryParams = new URLSearchParams();
-  const entries = {
-    clinic_id: filters.clinicId || '',
-    urgency_band: filters.urgencyBand || '',
-    visit_category: filters.visitCategory || '',
-    patient_query: filters.patientQuery || '',
-    created_from: filters.createdFrom || '',
-    created_to: filters.createdTo || '',
-  };
-
-  Object.entries(entries).forEach(([key, value]) => {
-    if (value) queryParams.set(key, value);
-  });
-
-  const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
-  return apiFetch(`/admin/results${query}`, {
-    headers: { ...authHeaders() },
   });
 }
 
@@ -121,7 +177,10 @@ export async function chatTurn(sessionId, userMessage) {
   return apiFetch('/chat/turn', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ session_id: sessionId, user_message: userMessage }),
+    body: JSON.stringify({
+      session_id: sessionId,
+      user_message: userMessage,
+    }),
   });
 }
 
@@ -132,3 +191,5 @@ export async function endChat(sessionId) {
     body: JSON.stringify({ session_id: sessionId }),
   });
 }
+
+
