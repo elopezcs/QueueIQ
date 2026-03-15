@@ -314,7 +314,7 @@ export default function App() {
                 <div className="disclaimer-subtitle">This is not a diagnosis. Wait-time estimates are not guaranteed.</div>
                 <div className="disclaimer-list">
                   {activeDisclaimers.map((item, idx) => (
-                    <div key={idx}>• {item}</div>
+                    <div key={idx}>- {item}</div>
                   ))}
                 </div>
               </div>

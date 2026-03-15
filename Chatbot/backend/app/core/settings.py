@@ -9,7 +9,9 @@ class Settings(BaseSettings):
     host: str = Field(default="127.0.0.1")
     port: int = Field(default=8000)
 
-    cors_allow_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
+    cors_allow_origins: list[str] = Field(
+        default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173"]
+    )
 
     # Storage
     sqlite_path: str = Field(default="app.db", alias="SQLITE_PATH")
