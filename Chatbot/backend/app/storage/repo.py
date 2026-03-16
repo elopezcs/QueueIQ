@@ -36,6 +36,70 @@ def _demo_user_index(patient_id: str) -> int | None:
     return None
 
 
+PATIENT_SELECT_COLUMNS = (
+    'patient_id, full_name, email, email_verified, is_admin, role, clinic_id, '
+    'password_hash, medical_profile_json, professional_profile_json, created_at, updated_at, last_login_at'
+)
+ADMIN_ROLES = {'manager'}
+
+
+def _normalized_role(role: str | None, *, fallback_is_admin: bool = False) -> str:
+    cleaned = str(role or '').strip().lower()
+    if cleaned in {'patient', 'staff', 'manager'}:
+        return cleaned
+    return 'manager' if fallback_is_admin else 'patient'
+
+
+def _is_admin_role(role: str | None) -> bool:
+    return _normalized_role(role) in ADMIN_ROLES
+
+
+def _parse_profile_blob(raw_value: str | None) -> dict[str, Any] | None:
+    if not raw_value:
+        return None
+    try:
+        parsed = json.loads(raw_value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _serialize_profile_blob(profile: dict[str, Any] | None) -> str | None:
+    if not profile:
+        return None
+    cleaned = {key: value for key, value in profile.items() if value not in (None, '', [])}
+    return json.dumps(cleaned, ensure_ascii=False) if cleaned else None
+
+
+def _parse_medical_profile(raw_value: str | None) -> dict[str, Any] | None:
+    return _parse_profile_blob(raw_value)
+
+
+def _serialize_medical_profile(profile: dict[str, Any] | None) -> str | None:
+    return _serialize_profile_blob(profile)
+
+
+def _parse_professional_profile(raw_value: str | None) -> dict[str, Any] | None:
+    return _parse_profile_blob(raw_value)
+
+
+def _serialize_professional_profile(profile: dict[str, Any] | None) -> str | None:
+    return _serialize_profile_blob(profile)
+
+
+def _format_recent_history_for_context(appointments: list[dict[str, Any]]) -> str:
+    if not appointments:
+        return 'No prior appointment history on file.'
+    lines = []
+    for appointment in appointments[:5]:
+        scheduled_for = str(appointment.get('scheduled_for') or '').strip()
+        description = str(appointment.get('description') or 'No description recorded').strip()
+        status = str(appointment.get('status') or 'unknown').strip()
+        clinic_id = str(appointment.get('clinic_id') or 'unknown').strip()
+        lines.append(f'- {scheduled_for} | {clinic_id} | {status} | {description}')
+    return '\n'.join(lines)
+
+
 class SessionRepo:
     def create_session(self, clinic_id: str, patient_id: str | None = None) -> str:
         session_id = secrets.token_hex(16)
@@ -133,7 +197,7 @@ class PatientRepo:
         conn = get_conn()
         try:
             row = conn.execute(
-                'SELECT patient_id, full_name, email, email_verified, is_admin, created_at, updated_at, last_login_at FROM patients WHERE email=?',
+                f'SELECT {PATIENT_SELECT_COLUMNS} FROM patients WHERE email=?',
                 (email.lower(),),
             ).fetchone()
             return dict(row) if row else None
@@ -144,7 +208,7 @@ class PatientRepo:
         conn = get_conn()
         try:
             row = conn.execute(
-                'SELECT patient_id, full_name, email, email_verified, is_admin, created_at, updated_at, last_login_at FROM patients WHERE patient_id=?',
+                f'SELECT {PATIENT_SELECT_COLUMNS} FROM patients WHERE patient_id=?',
                 (patient_id,),
             ).fetchone()
             return dict(row) if row else None
@@ -159,6 +223,9 @@ class PatientRepo:
         patient_id: str | None = None,
         is_admin: bool = False,
         email_verified: bool = False,
+        role: str | None = None,
+        clinic_id: str | None = None,
+        password_hash: str | None = None,
     ) -> dict[str, Any]:
         normalized_email = email.lower()
         existing = self.get_patient_by_email(normalized_email)
@@ -167,12 +234,33 @@ class PatientRepo:
         try:
             if existing:
                 resolved_name = (full_name or existing['full_name'] or normalized_email.split('@')[0]).strip()
+                if role is None:
+                    resolved_role = _normalized_role(existing.get('role'), fallback_is_admin=bool(existing.get('is_admin')))
+                    resolved_is_admin = 1 if (bool(existing.get('is_admin')) or is_admin or _is_admin_role(resolved_role)) else 0
+                else:
+                    resolved_role = _normalized_role(role, fallback_is_admin=is_admin)
+                    resolved_is_admin = 1 if (is_admin or _is_admin_role(resolved_role)) else 0
+                resolved_clinic_id = clinic_id if clinic_id is not None else existing.get('clinic_id')
+                if resolved_role != 'staff':
+                    resolved_clinic_id = None
+                resolved_password_hash = password_hash if password_hash is not None else existing.get('password_hash')
+                resolved_medical_profile = existing.get('medical_profile_json')
+                resolved_professional_profile = existing.get('professional_profile_json')
                 conn.execute(
-                    'UPDATE patients SET full_name=?, email_verified=?, is_admin=?, updated_at=? WHERE patient_id=?',
+                    '''
+                    UPDATE patients
+                    SET full_name=?, email_verified=?, is_admin=?, role=?, clinic_id=?, password_hash=?, medical_profile_json=?, professional_profile_json=?, updated_at=?
+                    WHERE patient_id=?
+                    ''',
                     (
                         resolved_name,
                         1 if (email_verified or bool(existing['email_verified'])) else 0,
-                        1 if (is_admin or bool(existing['is_admin'])) else 0,
+                        resolved_is_admin,
+                        resolved_role,
+                        resolved_clinic_id,
+                        resolved_password_hash,
+                        resolved_medical_profile,
+                        resolved_professional_profile,
                         now,
                         existing['patient_id'],
                     ),
@@ -181,15 +269,26 @@ class PatientRepo:
                 return self.get_patient_by_id(existing['patient_id']) or existing
 
             resolved_name = (full_name or normalized_email.split('@')[0]).strip()
+            resolved_role = _normalized_role(role, fallback_is_admin=is_admin)
+            resolved_clinic_id = clinic_id if resolved_role == 'staff' else None
             new_patient_id = patient_id or secrets.token_hex(12)
             conn.execute(
-                'INSERT INTO patients(patient_id, full_name, email, email_verified, is_admin, created_at, updated_at) VALUES(?,?,?,?,?,?,?)',
+                '''
+                INSERT INTO patients(
+                    patient_id, full_name, email, email_verified, is_admin, role, clinic_id, password_hash, medical_profile_json, professional_profile_json, created_at, updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                ''',
                 (
                     new_patient_id,
                     resolved_name,
                     normalized_email,
                     1 if email_verified else 0,
-                    1 if is_admin else 0,
+                    1 if (is_admin or _is_admin_role(resolved_role)) else 0,
+                    resolved_role,
+                    resolved_clinic_id,
+                    password_hash,
+                    None,
+                    None,
                     now,
                     now,
                 ),
@@ -200,6 +299,28 @@ class PatientRepo:
             return created
         finally:
             conn.close()
+
+    def register_user(
+        self,
+        *,
+        email: str,
+        full_name: str | None,
+        password_hash: str,
+        role: str,
+        clinic_id: str | None,
+    ) -> dict[str, Any]:
+        existing = self.get_patient_by_email(email)
+        if existing and existing.get('password_hash'):
+            raise ValueError('An account with this email already exists')
+        return self.create_or_update_patient(
+            email,
+            full_name,
+            email_verified=True,
+            is_admin=_is_admin_role(role),
+            role=role,
+            clinic_id=clinic_id,
+            password_hash=password_hash,
+        )
 
     def mark_email_verified(self, patient_id: str) -> None:
         conn = get_conn()
@@ -247,10 +368,15 @@ class PatientRepo:
     def create_auth_session(self, patient_id: str, expires_at: str) -> str:
         token = secrets.token_urlsafe(32)
         conn = get_conn()
+        now = utc_now_iso()
         try:
             conn.execute(
                 'INSERT INTO auth_sessions(token, patient_id, created_at, expires_at) VALUES(?,?,?,?)',
-                (token, patient_id, utc_now_iso(), expires_at),
+                (token, patient_id, now, expires_at),
+            )
+            conn.execute(
+                'UPDATE patients SET last_login_at=?, updated_at=? WHERE patient_id=?',
+                (now, now, patient_id),
             )
             conn.commit()
             return token
@@ -261,13 +387,14 @@ class PatientRepo:
         conn = get_conn()
         try:
             row = conn.execute(
-                """
-                SELECT p.patient_id, p.full_name, p.email, p.email_verified, p.is_admin, p.created_at, p.updated_at, p.last_login_at
+                '''
+                SELECT p.patient_id, p.full_name, p.email, p.email_verified, p.is_admin, p.role, p.clinic_id,
+                       p.password_hash, p.medical_profile_json, p.professional_profile_json, p.created_at, p.updated_at, p.last_login_at
                 FROM auth_sessions s
                 JOIN patients p ON p.patient_id = s.patient_id
                 WHERE s.token=? AND s.expires_at >= ?
                 LIMIT 1
-                """,
+                ''',
                 (token, utc_now_iso()),
             ).fetchone()
             return dict(row) if row else None
@@ -282,6 +409,125 @@ class PatientRepo:
         finally:
             conn.close()
 
+    def get_medical_profile(self, patient_id: str) -> dict[str, Any] | None:
+        patient = self.get_patient_by_id(patient_id)
+        if not patient:
+            return None
+        return _parse_medical_profile(patient.get('medical_profile_json'))
+
+    def get_professional_profile(self, patient_id: str) -> dict[str, Any] | None:
+        patient = self.get_patient_by_id(patient_id)
+        if not patient:
+            return None
+        return _parse_professional_profile(patient.get('professional_profile_json'))
+
+    def update_profile(
+        self,
+        patient_id: str,
+        *,
+        full_name: str | None = None,
+        medical_profile: dict[str, Any] | None = None,
+        professional_profile: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        patient = self.get_patient_by_id(patient_id)
+        if not patient:
+            return None
+
+        conn = get_conn()
+        now = utc_now_iso()
+        try:
+            conn.execute(
+                'UPDATE patients SET full_name=?, medical_profile_json=?, professional_profile_json=?, updated_at=? WHERE patient_id=?',
+                (
+                    full_name if full_name is not None else patient.get('full_name'),
+                    _serialize_medical_profile(medical_profile) if medical_profile is not None else patient.get('medical_profile_json'),
+                    _serialize_professional_profile(professional_profile) if professional_profile is not None else patient.get('professional_profile_json'),
+                    now,
+                    patient_id,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return self.get_patient_by_id(patient_id)
+
+    def update_medical_profile(self, patient_id: str, profile: dict[str, Any]) -> dict[str, Any] | None:
+        return self.update_profile(patient_id, medical_profile=profile)
+
+    def update_professional_profile(self, patient_id: str, profile: dict[str, Any]) -> dict[str, Any] | None:
+        return self.update_profile(patient_id, professional_profile=profile)
+
+    def build_patient_chat_context(self, patient_id: str) -> str:
+        patient = self.get_patient_by_id(patient_id)
+        if not patient:
+            return 'No patient profile is available.'
+
+        profile = _parse_medical_profile(patient.get('medical_profile_json')) or {}
+        profile_lines = []
+        ordered_fields = [
+            ('date_of_birth', 'Date of birth'),
+            ('sex', 'Sex'),
+            ('height_cm', 'Height (cm)'),
+            ('weight_kg', 'Weight (kg)'),
+            ('blood_group', 'Blood group'),
+            ('allergies', 'Allergies'),
+            ('medications', 'Current medications'),
+            ('chronic_conditions', 'Chronic conditions'),
+            ('past_surgeries', 'Past surgeries'),
+            ('primary_physician', 'Primary physician'),
+            ('smoking_status', 'Smoking status'),
+            ('pregnancy_status', 'Pregnancy status'),
+            ('mobility_notes', 'Mobility notes'),
+            ('medical_notes', 'Medical notes'),
+        ]
+        for key, label in ordered_fields:
+            value = profile.get(key)
+            if value not in (None, '', []):
+                profile_lines.append(f'- {label}: {value}')
+
+        appointment_history = AppointmentRepo().list_appointments_for_patient(patient_id)
+        past_history = [appointment for appointment in appointment_history if str(appointment.get('status') or '').lower() != 'scheduled']
+
+        patient_name = patient.get('full_name') or patient.get('email') or patient_id
+        sections = [f'Patient on file: {patient_name}']
+        sections.append('Stored profile details:' if profile_lines else 'Stored profile details: none provided.')
+        if profile_lines:
+            sections.extend(profile_lines)
+        sections.append('Recent appointment history:')
+        sections.append(_format_recent_history_for_context(past_history))
+        return '\n'.join(sections)
+
+    def list_staff_members(self, query: str | None = None, clinic_id: str | None = None) -> list[dict[str, Any]]:
+        conn = get_conn()
+        try:
+            clauses = ["role='staff'"]
+            params: list[Any] = []
+
+            cleaned_query = str(query or '').strip().lower()
+            if cleaned_query:
+                clauses.append('(LOWER(COALESCE(full_name, "")) LIKE ? OR LOWER(COALESCE(email, "")) LIKE ?)')
+                search_value = f"%{cleaned_query}%"
+                params.extend([search_value, search_value])
+
+            cleaned_clinic_id = str(clinic_id or '').strip()
+            if cleaned_clinic_id:
+                clauses.append('clinic_id=?')
+                params.append(cleaned_clinic_id)
+
+            where_sql = ' AND '.join(clauses)
+            rows = conn.execute(
+                f'''
+                SELECT patient_id, full_name, email, role, clinic_id, email_verified, created_at, updated_at, last_login_at
+                FROM patients
+                WHERE {where_sql}
+                ORDER BY COALESCE(clinic_id, ''), LOWER(full_name), LOWER(email)
+                ''',
+                params,
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
     def list_demo_users(self) -> list[dict[str, Any]]:
         return [
             {
@@ -289,6 +535,8 @@ class PatientRepo:
                 'full_name': user['full_name'],
                 'email': user['email'],
                 'is_admin': user['is_admin'],
+                'role': user['role'],
+                'clinic_id': user['clinic_id'],
                 'otp_code': user['otp_code'],
             }
             for user in DEMO_USERS
@@ -304,6 +552,7 @@ class AppointmentRepo:
         session_id: str | None = None,
         status: str = 'scheduled',
         appointment_id: str | None = None,
+        description: str | None = None,
     ) -> dict[str, Any]:
         resolved_appointment_id = appointment_id or secrets.token_hex(12)
         conn = get_conn()
@@ -311,14 +560,15 @@ class AppointmentRepo:
         try:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO appointments(appointment_id, patient_id, clinic_id, session_id, scheduled_for, status, created_at, updated_at)
-                VALUES(?,?,?,?,?,?,?,?)
+                INSERT OR REPLACE INTO appointments(
+                    appointment_id, patient_id, clinic_id, session_id, scheduled_for, status, description, created_at, updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?)
                 """,
-                (resolved_appointment_id, patient_id, clinic_id, session_id, scheduled_for, status, now, now),
+                (resolved_appointment_id, patient_id, clinic_id, session_id, scheduled_for, status, description, now, now),
             )
             conn.commit()
             row = conn.execute(
-                'SELECT appointment_id, patient_id, clinic_id, session_id, scheduled_for, status, created_at, updated_at FROM appointments WHERE appointment_id=?',
+                'SELECT appointment_id, patient_id, clinic_id, session_id, scheduled_for, status, description, created_at, updated_at FROM appointments WHERE appointment_id=?',
                 (resolved_appointment_id,),
             ).fetchone()
             return dict(row)
@@ -330,7 +580,7 @@ class AppointmentRepo:
         try:
             rows = conn.execute(
                 """
-                SELECT appointment_id, patient_id, clinic_id, session_id, scheduled_for, status, created_at, updated_at
+                SELECT appointment_id, patient_id, clinic_id, session_id, scheduled_for, status, description, created_at, updated_at
                 FROM appointments
                 WHERE patient_id=?
                 ORDER BY scheduled_for DESC
@@ -378,6 +628,65 @@ class AppointmentRepo:
                 status='completed',
                 appointment_id=f'demo-history-{patient_id}-{offset + 1}',
             )
+
+    def search_appointments(self, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        conn = get_conn()
+        try:
+            filters = filters or {}
+            params: list[Any] = []
+            clauses: list[str] = []
+
+            clinic_id = filters.get('clinic_id')
+            if clinic_id:
+                clauses.append('a.clinic_id=?')
+                params.append(clinic_id)
+
+            patient_query = filters.get('patient_query')
+            if patient_query:
+                clauses.append('(LOWER(COALESCE(p.full_name, "")) LIKE ? OR LOWER(COALESCE(p.email, "")) LIKE ?)')
+                search_value = f"%{str(patient_query).lower()}%"
+                params.extend([search_value, search_value])
+
+            scheduled_from = filters.get('scheduled_from')
+            if scheduled_from:
+                clauses.append('a.scheduled_for >= ?')
+                params.append(scheduled_from)
+
+            scheduled_to = filters.get('scheduled_to')
+            if scheduled_to:
+                clauses.append('a.scheduled_for <= ?')
+                params.append(scheduled_to)
+
+            time_bucket = str(filters.get('time_bucket') or 'today').lower()
+            now_iso = utc_now_iso()
+            if time_bucket == 'today':
+                today_start = utc_now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+                today_end = utc_now().replace(hour=23, minute=59, second=59, microsecond=999999).isoformat()
+                clauses.append('a.scheduled_for >= ?')
+                clauses.append('a.scheduled_for <= ?')
+                params.extend([today_start, today_end])
+            elif time_bucket == 'upcoming':
+                clauses.append('a.scheduled_for > ?')
+                params.append(now_iso)
+            elif time_bucket == 'past':
+                clauses.append('a.scheduled_for < ?')
+                params.append(now_iso)
+
+            where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ''
+            rows = conn.execute(
+                f'''
+                SELECT a.appointment_id, a.patient_id, p.full_name, p.email, a.clinic_id, a.session_id,
+                       a.scheduled_for, a.status, a.description, a.created_at, a.updated_at
+                FROM appointments a
+                JOIN patients p ON p.patient_id = a.patient_id
+                {where_sql}
+                ORDER BY a.scheduled_for ASC
+                ''',
+                params,
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
 
     def list_due_reminders(self, window_end_iso: str) -> list[dict[str, Any]]:
         conn = get_conn()
@@ -489,24 +798,28 @@ def seed_demo_data() -> None:
     if not clinic_ids:
         return
 
-    for index, user in enumerate(DEMO_USERS):
+    patient_demo_index = 0
+    for user in DEMO_USERS:
         patient_repo.create_or_update_patient(
             user['email'],
             user['full_name'],
             patient_id=user['patient_id'],
             is_admin=bool(user['is_admin']),
             email_verified=True,
+            role=user['role'],
+            clinic_id=user['clinic_id'],
         )
 
-        if user['is_admin']:
+        if user['role'] != 'patient':
             continue
 
         appointment_repo.ensure_demo_appointments(user['patient_id'])
 
         conn = get_conn()
         try:
-            session_id = f'demo-session-{index + 1}'
-            clinic_id = clinic_ids[index % len(clinic_ids)]
+            patient_demo_index += 1
+            session_id = f'demo-session-{patient_demo_index}'
+            clinic_id = clinic_ids[(patient_demo_index - 1) % len(clinic_ids)]
             conn.execute(
                 'INSERT OR REPLACE INTO sessions(session_id, clinic_id, patient_id, created_at, done) VALUES(?,?,?,?,1)',
                 (session_id, clinic_id, user['patient_id'], utc_now_iso()),
@@ -521,20 +834,31 @@ def seed_demo_data() -> None:
                 """,
                 (
                     session_id,
-                    f'demo-run-{index + 1}',
-                    ['low', 'medium', 'high'][index % 3],
-                    ['general', 'respiratory', 'urgent'][index % 3],
-                    18 + (index * 7),
-                    32 + (index * 11),
+                    f'demo-run-{patient_demo_index}',
+                    ['low', 'medium', 'high'][(patient_demo_index - 1) % 3],
+                    ['general', 'respiratory', 'urgent'][(patient_demo_index - 1) % 3],
+                    18 + ((patient_demo_index - 1) * 7),
+                    32 + ((patient_demo_index - 1) * 11),
                     f'Demo intake summary for {user["full_name"]} at {clinic_id}.',
                     json.dumps([
                         'This is not a diagnosis.',
                         'Wait-time estimates are not guaranteed.',
                     ]),
-                    f'demo-config-hash-{index + 1}',
+                    f'demo-config-hash-{patient_demo_index}',
                     utc_now_iso(),
                 ),
             )
             conn.commit()
         finally:
             conn.close()
+
+
+
+
+
+
+
+
+
+
+

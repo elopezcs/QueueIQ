@@ -4,6 +4,11 @@ CREATE TABLE IF NOT EXISTS patients (
   email TEXT NOT NULL UNIQUE,
   email_verified INTEGER NOT NULL DEFAULT 0,
   is_admin INTEGER NOT NULL DEFAULT 0,
+  role TEXT NOT NULL DEFAULT 'patient',
+  clinic_id TEXT,
+  password_hash TEXT,
+  medical_profile_json TEXT,
+  professional_profile_json TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   last_login_at TEXT
@@ -67,6 +72,7 @@ CREATE TABLE IF NOT EXISTS appointments (
   session_id TEXT,
   scheduled_for TEXT NOT NULL,
   status TEXT NOT NULL,
+  description TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   FOREIGN KEY(patient_id) REFERENCES patients(patient_id),
@@ -92,3 +98,4 @@ CREATE INDEX IF NOT EXISTS idx_auth_sessions_patient_id ON auth_sessions(patient
 CREATE INDEX IF NOT EXISTS idx_appointments_patient_id ON appointments(patient_id);
 CREATE INDEX IF NOT EXISTS idx_appointments_scheduled_for ON appointments(scheduled_for);
 CREATE INDEX IF NOT EXISTS idx_notification_logs_appointment_id ON notification_logs(appointment_id);
+

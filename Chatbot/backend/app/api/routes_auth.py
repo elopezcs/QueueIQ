@@ -1,3 +1,4 @@
+import json
 import secrets
 
 from fastapi import APIRouter, Request
@@ -8,16 +9,56 @@ from app.auth.utils import (
     get_authenticated_patient,
     get_json_body,
     hash_otp,
+    hash_password,
+    role_is_admin,
     validate_email,
     validate_optional_name,
     validate_otp_code,
+    validate_password,
+    verify_password,
 )
+from app.config.loader import get_clinic_by_id
 from app.core.settings import settings
-from app.models.schemas import AuthSessionOut, DemoUserOut, OtpRequestOut, PatientProfileOut
+from app.models.schemas import (
+    AuthSessionOut,
+    DemoUserOut,
+    OtpRequestOut,
+    PatientMedicalProfileOut,
+    PatientProfileOut,
+    StaffDirectoryOut,
+    StaffMemberOut,
+    StaffProfessionalProfileOut,
+)
 from app.services.emailer import send_otp_email
 from app.storage.repo import AppointmentRepo, PatientRepo, iso_after_hours, iso_after_minutes
 
 router = APIRouter(prefix='/auth', tags=['auth'])
+
+
+def _medical_profile(patient: dict) -> PatientMedicalProfileOut | None:
+    raw_value = patient.get('medical_profile_json')
+    if not raw_value:
+        return None
+    try:
+        parsed = json.loads(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return PatientMedicalProfileOut(**parsed)
+
+
+def _professional_profile(patient: dict) -> StaffProfessionalProfileOut | None:
+    raw_value = patient.get('professional_profile_json')
+    if not raw_value:
+        return None
+    try:
+        parsed = json.loads(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return StaffProfessionalProfileOut(**parsed)
 
 
 def _profile(patient: dict) -> PatientProfileOut:
@@ -27,7 +68,265 @@ def _profile(patient: dict) -> PatientProfileOut:
         email=patient['email'],
         email_verified=bool(patient['email_verified']),
         is_admin=bool(patient['is_admin']),
+        role=str(patient.get('role') or 'patient'),
+        clinic_id=patient.get('clinic_id'),
+        medical_profile=_medical_profile(patient),
+        professional_profile=_professional_profile(patient),
     )
+
+
+def _resolve_staff_clinic(value: object):
+    if not isinstance(value, str) or not value.strip():
+        return error_response(400, 'clinic_id is required for staff accounts', 'MISSING_FIELD', 'clinic_id')
+    clinic_id = value.strip()
+    if not get_clinic_by_id(clinic_id):
+        return error_response(404, 'Clinic not found', 'NOT_FOUND', 'clinic_id')
+    return clinic_id
+
+
+def _require_manager(request: Request):
+    patient = get_authenticated_patient(request)
+    if not patient:
+        return None, error_response(401, 'Authentication required', 'AUTH_REQUIRED')
+    if str(patient.get('role') or 'patient').lower() != 'manager':
+        return None, error_response(403, 'Manager access is required', 'FORBIDDEN')
+    return patient, None
+
+
+def _clean_staff_query(value: str | None):
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if len(cleaned) > 120:
+        return error_response(422, 'query is too long', 'INVALID_FORMAT', 'query')
+    return cleaned
+
+
+def _optional_profile_text(value: object, field: str, *, max_length: int = 240):
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return error_response(422, f'{field} must be a string', 'INVALID_FORMAT', field)
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    if len(cleaned) > max_length:
+        return error_response(422, f'{field} is too long', 'INVALID_FORMAT', field)
+    return cleaned
+
+
+def _optional_profile_number(value: object, field: str, *, minimum: float = 0.0, maximum: float = 500.0):
+    if value in (None, ''):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return error_response(422, f'{field} must be a number', 'INVALID_FORMAT', field)
+    if number < minimum or number > maximum:
+        return error_response(422, f'{field} is out of range', 'INVALID_FORMAT', field)
+    return round(number, 1)
+
+
+def _parse_patient_profile_payload(body: dict[str, object]):
+    field_specs = {
+        'date_of_birth': ('text', 32),
+        'sex': ('text', 32),
+        'blood_group': ('text', 16),
+        'allergies': ('text', 500),
+        'medications': ('text', 500),
+        'chronic_conditions': ('text', 500),
+        'past_surgeries': ('text', 500),
+        'primary_physician': ('text', 120),
+        'emergency_contact_name': ('text', 120),
+        'emergency_contact_phone': ('text', 40),
+        'smoking_status': ('text', 40),
+        'pregnancy_status': ('text', 80),
+        'mobility_notes': ('text', 300),
+        'medical_notes': ('text', 800),
+        'height_cm': ('number', 30.0, 260.0),
+        'weight_kg': ('number', 2.0, 500.0),
+    }
+    parsed: dict[str, object] = {}
+    for field, spec in field_specs.items():
+        value = body.get(field)
+        if spec[0] == 'text':
+            result = _optional_profile_text(value, field, max_length=spec[1])
+        else:
+            result = _optional_profile_number(value, field, minimum=spec[1], maximum=spec[2])
+        if hasattr(result, 'status_code'):
+            return result
+        parsed[field] = result
+    return parsed
+
+
+def _parse_staff_profile_payload(body: dict[str, object]):
+    field_specs = {
+        'job_title': ('text', 120),
+        'department': ('text', 120),
+        'license_type': ('text', 80),
+        'license_number': ('text', 80),
+        'license_expiry': ('text', 32),
+        'specialty': ('text', 120),
+        'certifications': ('text', 500),
+        'years_experience': ('number', 0.0, 70.0),
+        'languages_spoken': ('text', 200),
+        'shift_preference': ('text', 120),
+        'supervisor_name': ('text', 120),
+        'employment_start_date': ('text', 32),
+        'staff_notes': ('text', 800),
+    }
+    parsed: dict[str, object] = {}
+    for field, spec in field_specs.items():
+        value = body.get(field)
+        if spec[0] == 'text':
+            result = _optional_profile_text(value, field, max_length=spec[1])
+        else:
+            result = _optional_profile_number(value, field, minimum=spec[1], maximum=spec[2])
+        if hasattr(result, 'status_code'):
+            return result
+        parsed[field] = result
+    return parsed
+
+
+@router.post('/register', response_model=AuthSessionOut)
+async def register(request: Request):
+    body = await get_json_body(request)
+    if body is None:
+        return error_response(400, 'Request body must be a JSON object', 'INVALID_JSON')
+
+    email = validate_email(body.get('email'))
+    if hasattr(email, 'status_code'):
+        return email
+
+    full_name = validate_optional_name(body.get('full_name'))
+    if hasattr(full_name, 'status_code'):
+        return full_name
+
+    password = validate_password(body.get('password'))
+    if hasattr(password, 'status_code'):
+        return password
+
+    if email in DEMO_USER_BY_EMAIL and settings.env.lower() != 'prod':
+        return error_response(409, 'Use demo-login for local demo users', 'DEMO_LOGIN_ONLY', 'email')
+
+    repo = PatientRepo()
+    existing = repo.get_patient_by_email(email)
+    if existing and existing.get('password_hash'):
+        return error_response(409, 'An account with this email already exists', 'ALREADY_EXISTS', 'email')
+
+    patient = repo.register_user(
+        email=email,
+        full_name=full_name if isinstance(full_name, str) else None,
+        password_hash=hash_password(password),
+        role='patient',
+        clinic_id=None,
+    )
+    token = repo.create_auth_session(patient['patient_id'], iso_after_hours(settings.auth_session_hours))
+    refreshed = repo.get_patient_by_auth_token(token)
+    if not refreshed:
+        return error_response(500, 'Unable to create auth session', 'INTERNAL_SERVER_ERROR')
+
+    return AuthSessionOut(token=token, patient=_profile(refreshed))
+
+
+@router.post('/staff', response_model=PatientProfileOut)
+async def create_staff_account(request: Request):
+    manager, auth_error = _require_manager(request)
+    if auth_error:
+        return auth_error
+
+    body = await get_json_body(request)
+    if body is None:
+        return error_response(400, 'Request body must be a JSON object', 'INVALID_JSON')
+
+    email = validate_email(body.get('email'))
+    if hasattr(email, 'status_code'):
+        return email
+
+    full_name = validate_optional_name(body.get('full_name'))
+    if hasattr(full_name, 'status_code'):
+        return full_name
+
+    password = validate_password(body.get('password'))
+    if hasattr(password, 'status_code'):
+        return password
+
+    clinic_id = _resolve_staff_clinic(body.get('clinic_id'))
+    if hasattr(clinic_id, 'status_code'):
+        return clinic_id
+
+    repo = PatientRepo()
+    existing = repo.get_patient_by_email(email)
+    if existing and existing.get('password_hash'):
+        return error_response(409, 'An account with this email already exists', 'ALREADY_EXISTS', 'email')
+
+    staff_member = repo.register_user(
+        email=email,
+        full_name=full_name if isinstance(full_name, str) else None,
+        password_hash=hash_password(password),
+        role='staff',
+        clinic_id=clinic_id,
+    )
+    return _profile(staff_member)
+
+
+@router.get('/staff-members', response_model=StaffDirectoryOut)
+async def list_staff_members(request: Request, query: str | None = None, clinic_id: str | None = None):
+    manager, auth_error = _require_manager(request)
+    if auth_error:
+        return auth_error
+
+    resolved_query = _clean_staff_query(query)
+    if hasattr(resolved_query, 'status_code'):
+        return resolved_query
+
+    resolved_clinic_id = None
+    if clinic_id is not None:
+        if not isinstance(clinic_id, str) or not clinic_id.strip():
+            return error_response(422, 'clinic_id must be a non-empty string', 'INVALID_FORMAT', 'clinic_id')
+        resolved_clinic_id = clinic_id.strip()
+        if not get_clinic_by_id(resolved_clinic_id):
+            return error_response(404, 'Clinic not found', 'NOT_FOUND', 'clinic_id')
+
+    results = [
+        StaffMemberOut(**row)
+        for row in PatientRepo().list_staff_members(query=resolved_query if isinstance(resolved_query, str) else None, clinic_id=resolved_clinic_id)
+    ]
+    return StaffDirectoryOut(
+        clinic_id=resolved_clinic_id,
+        query=resolved_query if isinstance(resolved_query, str) else None,
+        total_results=len(results),
+        results=results,
+    )
+
+
+@router.post('/login', response_model=AuthSessionOut)
+async def login(request: Request):
+    body = await get_json_body(request)
+    if body is None:
+        return error_response(400, 'Request body must be a JSON object', 'INVALID_JSON')
+
+    email = validate_email(body.get('email'))
+    if hasattr(email, 'status_code'):
+        return email
+
+    password = validate_password(body.get('password'))
+    if hasattr(password, 'status_code'):
+        return password
+
+    repo = PatientRepo()
+    patient = repo.get_patient_by_email(email)
+    if not patient or not verify_password(password, patient.get('password_hash')):
+        return error_response(401, 'Email or password is incorrect', 'INVALID_CREDENTIALS', 'email')
+
+    token = repo.create_auth_session(patient['patient_id'], iso_after_hours(settings.auth_session_hours))
+    refreshed = repo.get_patient_by_auth_token(token)
+    if not refreshed:
+        return error_response(500, 'Unable to create auth session', 'INTERNAL_SERVER_ERROR')
+
+    return AuthSessionOut(token=token, patient=_profile(refreshed))
 
 
 @router.post('/demo-login', response_model=AuthSessionOut)
@@ -52,10 +351,12 @@ async def demo_login(request: Request):
         email,
         demo_user['full_name'],
         patient_id=demo_user['patient_id'],
-        is_admin=bool(demo_user['is_admin']),
+        is_admin=role_is_admin(demo_user['role']),
         email_verified=True,
+        role=demo_user['role'],
+        clinic_id=demo_user['clinic_id'],
     )
-    if not demo_user['is_admin']:
+    if demo_user['role'] == 'patient':
         AppointmentRepo().ensure_demo_appointments(patient['patient_id'])
     repo.mark_email_verified(patient['patient_id'])
     token = repo.create_auth_session(patient['patient_id'], iso_after_hours(settings.auth_session_hours))
@@ -127,6 +428,47 @@ async def me(request: Request):
     if not patient:
         return error_response(401, 'Authentication required', 'AUTH_REQUIRED')
     return _profile(patient)
+
+
+@router.patch('/me', response_model=PatientProfileOut)
+async def update_me(request: Request):
+    patient = get_authenticated_patient(request)
+    if not patient:
+        return error_response(401, 'Authentication required', 'AUTH_REQUIRED')
+
+    body = await get_json_body(request)
+    if body is None:
+        return error_response(400, 'Request body must be a JSON object', 'INVALID_JSON')
+
+    repo = PatientRepo()
+    full_name = None
+    if 'full_name' in body:
+        full_name = validate_optional_name(body.get('full_name'))
+        if hasattr(full_name, 'status_code'):
+            return full_name
+
+    role = str(patient.get('role') or 'patient').lower()
+    medical_profile = None
+    professional_profile = None
+
+    if role == 'patient':
+        medical_profile = _parse_patient_profile_payload(body)
+        if hasattr(medical_profile, 'status_code'):
+            return medical_profile
+    elif role == 'staff':
+        professional_profile = _parse_staff_profile_payload(body)
+        if hasattr(professional_profile, 'status_code'):
+            return professional_profile
+
+    updated = repo.update_profile(
+        patient['patient_id'],
+        full_name=full_name if isinstance(full_name, str) else None,
+        medical_profile=medical_profile if isinstance(medical_profile, dict) else None,
+        professional_profile=professional_profile if isinstance(professional_profile, dict) else None,
+    )
+    if not updated:
+        return error_response(404, 'Profile not found', 'NOT_FOUND')
+    return _profile(updated)
 
 
 @router.post('/logout')

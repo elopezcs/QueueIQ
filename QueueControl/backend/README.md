@@ -1,14 +1,16 @@
 # QueueControl Backend API
 
-This backend is isolated from `Chatbot` and runs only inside `QueueControl/.venv`.
+This backend uses the shared repository root `.venv`.
 
 ## Run
 
 From the repository root:
 
-```bash
-QueueControl\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --app-dir QueueControl\backend --port 8001
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --app-dir QueueControl\backend --port 8001
 ```
+
+Install Python dependencies from the root `requirements.txt`.
 
 ## Swagger
 
