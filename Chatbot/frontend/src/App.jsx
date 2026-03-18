@@ -2,17 +2,23 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   chatTurn,
   clearStoredToken,
+  createAppointment,
+  createStaffAccount,
   demoLogin,
   endChat,
-  getAdminResults,
   getClinics,
   getDemoUsers,
   getMe,
   getMyAppointments,
+  getStaffAppointments,
+  getStaffMembers,
   getStoredToken,
+  loginAccount,
   logout,
+  registerAccount,
   setStoredToken,
   startChat,
+  updateMyProfile,
 } from './api.js';
 import Navigation from './components/Navigation.jsx';
 import ClinicSelector from './components/ClinicSelector.jsx';
@@ -21,21 +27,76 @@ import FloatingButton from './components/FloatingButton.jsx';
 import ResultsView from './components/ResultsView.jsx';
 import AboutPage from './pages/AboutPage.jsx';
 import ContactPage from './pages/ContactPage.jsx';
-import LoginDemosPage from './pages/LoginDemosPage.jsx';
+import AccountPage from './pages/AccountPage.jsx';
 import PrivacyPage from './pages/PrivacyPage.jsx';
 import TeamPage from './pages/TeamPage.jsx';
 
-const DEFAULT_ADMIN_FILTERS = {
-  clinicId: '',
-  urgencyBand: '',
-  visitCategory: '',
-  patientQuery: '',
-  createdFrom: '',
-  createdTo: '',
+const EMPTY_APPOINTMENTS = {
+  current: [],
+  upcoming: [],
+  past: [],
 };
+
+const DEFAULT_STAFF_SEARCH = {
+  timeBucket: 'today',
+  patientQuery: '',
+  scheduledFrom: '',
+  scheduledTo: '',
+};
+
+const EMPTY_STAFF_APPOINTMENTS = {
+  clinic_id: null,
+  time_bucket: 'today',
+  total_results: 0,
+  results: [],
+};
+
+const DEFAULT_MANAGER_STAFF_FILTERS = {
+  query: '',
+  clinicId: '',
+};
+
+const EMPTY_MANAGER_STAFF_DIRECTORY = {
+  clinic_id: null,
+  query: null,
+  total_results: 0,
+  results: [],
+};
+
+function defaultAccountSectionForUser(user) {
+  const role = String(user?.role || '').toLowerCase();
+  if (role === 'staff') {
+    return 'dashboard';
+  }
+  if (role === 'manager') {
+    return 'simulations';
+  }
+  if (role === 'patient') {
+    return 'my-appointments';
+  }
+  return 'auth';
+}
+
+function toAppointmentDescription(results) {
+  const explanation = String(results?.explanation || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const firstSentence = explanation.split(/(?<=[.!?])\s+/)[0] || explanation;
+  const urgency = String(results?.urgency_band || '').trim();
+  const category = String(results?.visit_category || '').trim();
+  const prefix = [category, urgency ? `${urgency} urgency` : '']
+    .filter(Boolean)
+    .join(' - ');
+  const combined = [prefix, firstSentence]
+    .filter(Boolean)
+    .join(': ')
+    .trim();
+  return combined ? combined.slice(0, 280) : null;
+}
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState('home');
+  const [accountSection, setAccountSection] = useState('auth');
   const [clinics, setClinics] = useState([]);
   const [clinicId, setClinicId] = useState('');
   const [loading, setLoading] = useState(false);
@@ -53,16 +114,31 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
 
-  const [appointments, setAppointments] = useState({ upcoming: [], past: [] });
+  const [appointments, setAppointments] = useState(EMPTY_APPOINTMENTS);
   const [appointmentsLoading, setAppointmentsLoading] = useState(false);
   const [appointmentNotice, setAppointmentNotice] = useState('');
+  const [bookingLoading, setBookingLoading] = useState(false);
+  const [bookingNotice, setBookingNotice] = useState('');
+  const [pendingBooking, setPendingBooking] = useState(null);
 
-  const [adminFilters, setAdminFilters] = useState(DEFAULT_ADMIN_FILTERS);
-  const [adminResults, setAdminResults] = useState({ clinic_id: null, total_results: 0, results: [] });
-  const [adminLoading, setAdminLoading] = useState(false);
-  const [adminError, setAdminError] = useState('');
+  const [staffSearch, setStaffSearch] = useState(DEFAULT_STAFF_SEARCH);
+  const [appliedStaffSearch, setAppliedStaffSearch] = useState(DEFAULT_STAFF_SEARCH);
+  const [staffAppointments, setStaffAppointments] = useState(EMPTY_STAFF_APPOINTMENTS);
+  const [staffLoading, setStaffLoading] = useState(false);
+  const [staffError, setStaffError] = useState('');
 
-  const hasSession = useMemo(() => !!sessionId, [sessionId]);
+  const [managerStaffFilters, setManagerStaffFilters] = useState(DEFAULT_MANAGER_STAFF_FILTERS);
+  const [managerStaffDirectory, setManagerStaffDirectory] = useState(EMPTY_MANAGER_STAFF_DIRECTORY);
+  const [managerStaffLoading, setManagerStaffLoading] = useState(false);
+  const [managerStaffError, setManagerStaffError] = useState('');
+  const [isAddMemberFormOpen, setIsAddMemberFormOpen] = useState(false);
+
+  const [staffCreationLoading, setStaffCreationLoading] = useState(false);
+  const [staffCreationNotice, setStaffCreationNotice] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileNotice, setProfileNotice] = useState('');
+
+  const hasSession = useMemo(() => Boolean(sessionId), [sessionId]);
   const selectedClinic = useMemo(() => clinics.find((clinic) => clinic.id === clinicId) || null, [clinics, clinicId]);
   const activeDisclaimers = useMemo(
     () =>
@@ -76,9 +152,89 @@ export default function App() {
     [disclaimers],
   );
 
+  const userTurnCount = useMemo(
+    () => messages.filter((message) => message.role === 'user').length,
+    [messages],
+  );
+  const canFinishAssessment = useMemo(
+    () => hasSession && !results && done && userTurnCount > 0 && !loading,
+    [done, hasSession, loading, results, userTurnCount],
+  );
+
+  function handleReset() {
+    setSessionId('');
+    setMessages([]);
+    setDisclaimers([]);
+    setProgress({ turn_count: 0, max_turns: 10 });
+    setDone(false);
+    setResults(null);
+  }
+
+  function applyAuthenticatedUser(user) {
+    setCurrentUser(user);
+    setAccountSection(defaultAccountSectionForUser(user));
+    setAuthError('');
+    setAppointments(EMPTY_APPOINTMENTS);
+    setAppointmentNotice('');
+    setStaffSearch(DEFAULT_STAFF_SEARCH);
+    setAppliedStaffSearch(DEFAULT_STAFF_SEARCH);
+    setStaffAppointments(EMPTY_STAFF_APPOINTMENTS);
+    setStaffError('');
+    setManagerStaffFilters(DEFAULT_MANAGER_STAFF_FILTERS);
+    setManagerStaffDirectory(EMPTY_MANAGER_STAFF_DIRECTORY);
+    setManagerStaffError('');
+    setIsAddMemberFormOpen(false);
+    setStaffCreationNotice('');
+    setProfileNotice('');
+  }
+
+  async function refreshManagerStaffDirectory(filters = managerStaffFilters) {
+    setManagerStaffLoading(true);
+    setManagerStaffError('');
+    try {
+      setManagerStaffDirectory(await getStaffMembers(filters));
+    } catch (error) {
+      setManagerStaffError(error.message || 'Unable to load staff members');
+    } finally {
+      setManagerStaffLoading(false);
+    }
+  }
+
+  async function bookAppointmentFromAssessment(assessment) {
+    if (!assessment?.clinicId || !assessment?.results) {
+      setBookingNotice('Complete the chatbot flow first to book an appointment.');
+      return false;
+    }
+
+    setBookingLoading(true);
+    setBookingNotice('');
+
+    try {
+      await createAppointment(
+        assessment.clinicId,
+        new Date().toISOString(),
+        toAppointmentDescription(assessment.results),
+        assessment.sessionId || null,
+      );
+      setAppointments(await getMyAppointments());
+      setBookingNotice('Appointment booked successfully from your chatbot assessment.');
+      setPendingBooking(null);
+      handleReset();
+      setCurrentPage('account');
+      setAccountSection('my-appointments');
+      return true;
+    } catch (error) {
+      setBookingNotice(error.message || 'Unable to book appointment');
+      return false;
+    } finally {
+      setBookingLoading(false);
+    }
+  }
+
   useEffect(() => {
     (async () => {
-      const [clinicData, demoData] = await Promise.all([getClinics(), getDemoUsers()]);
+      const clinicData = await getClinics();
+      const demoData = await getDemoUsers().catch(() => []);
       setClinics(clinicData);
       setDemoUsers(demoData);
       if (clinicData.length) {
@@ -86,10 +242,13 @@ export default function App() {
       }
 
       const token = getStoredToken();
-      if (!token) return;
+      if (!token) {
+        return;
+      }
+
       try {
         const me = await getMe();
-        setCurrentUser(me);
+        applyAuthenticatedUser(me);
       } catch {
         clearStoredToken();
       }
@@ -100,9 +259,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (currentPage !== 'login-demos' || !currentUser || currentUser.is_admin) {
-      if (!currentUser || currentUser.is_admin) {
-        setAppointments({ upcoming: [], past: [] });
+    if (currentPage !== 'account' || !currentUser || currentUser.role !== 'patient' || accountSection !== 'my-appointments') {
+      if (!currentUser || currentUser.role !== 'patient') {
+        setAppointments(EMPTY_APPOINTMENTS);
+        setAppointmentNotice('');
       }
       return;
     }
@@ -118,43 +278,75 @@ export default function App() {
         setAppointmentsLoading(false);
       }
     })();
-  }, [currentUser, currentPage]);
+  }, [accountSection, currentPage, currentUser]);
 
   useEffect(() => {
-    if (currentPage !== 'login-demos' || !currentUser || !currentUser.is_admin) {
-      if (!currentUser || !currentUser.is_admin) {
-        setAdminResults({ clinic_id: null, total_results: 0, results: [] });
-        setAdminError('');
+    if (currentPage !== 'account' || !currentUser || currentUser.role !== 'staff' || accountSection !== 'dashboard') {
+      if (!currentUser || currentUser.role !== 'staff') {
+        setStaffAppointments(EMPTY_STAFF_APPOINTMENTS);
+        setStaffError('');
       }
       return;
     }
 
     (async () => {
-      setAdminLoading(true);
-      setAdminError('');
+      setStaffLoading(true);
+      setStaffError('');
       try {
-        setAdminResults(await getAdminResults(adminFilters));
+        setStaffAppointments(await getStaffAppointments(appliedStaffSearch));
       } catch (error) {
-        setAdminError(error.message || 'Unable to load admin results');
+        setStaffError(error.message || 'Unable to load staff appointments');
       } finally {
-        setAdminLoading(false);
+        setStaffLoading(false);
       }
     })();
-  }, [currentUser, currentPage, adminFilters]);
+  }, [accountSection, appliedStaffSearch, currentPage, currentUser]);
 
-  async function handleDemoLogin(email) {
+  useEffect(() => {
+    if (currentPage !== 'account' || !currentUser || currentUser.role !== 'manager' || accountSection !== 'add-member') {
+      if (!currentUser || currentUser.role !== 'manager') {
+        setManagerStaffDirectory(EMPTY_MANAGER_STAFF_DIRECTORY);
+        setManagerStaffError('');
+      }
+      return;
+    }
+
+    refreshManagerStaffDirectory(managerStaffFilters);
+  }, [accountSection, currentPage, currentUser, managerStaffFilters]);
+
+  async function completeAuth(authPromise) {
     setAuthLoading(true);
     setAuthError('');
     try {
-      const res = await demoLogin(email);
-      setStoredToken(res.token);
-      setCurrentUser(res.patient);
-      setCurrentPage('login-demos');
+      const response = await authPromise;
+      setStoredToken(response.token);
+      applyAuthenticatedUser(response.patient);
+
+      if (response.patient.role === 'patient' && pendingBooking) {
+        await bookAppointmentFromAssessment(pendingBooking);
+      } else {
+        setCurrentPage('account');
+      }
+
+      return true;
     } catch (error) {
-      setAuthError(error.message || 'Unable to log in');
+      setAuthError(error.message || 'Unable to authenticate');
+      return false;
     } finally {
       setAuthLoading(false);
     }
+  }
+
+  async function handleDemoLogin(email) {
+    return completeAuth(demoLogin(email));
+  }
+
+  async function handleLogin(credentials) {
+    return completeAuth(loginAccount(credentials));
+  }
+
+  async function handleRegister(details) {
+    return completeAuth(registerAccount(details));
   }
 
   async function handleLogout() {
@@ -165,34 +357,93 @@ export default function App() {
       console.error(error);
     } finally {
       clearStoredToken();
+      applyAuthenticatedUser(null);
       setCurrentUser(null);
-      setAppointments({ upcoming: [], past: [] });
-      setAdminResults({ clinic_id: null, total_results: 0, results: [] });
-      setAdminFilters(DEFAULT_ADMIN_FILTERS);
       setAuthLoading(false);
+      setCurrentPage('account');
     }
   }
 
-  function handleAdminFilterChange(field, value) {
-    setAdminFilters((current) => ({ ...current, [field]: value }));
+  function handleStaffSearchChange(field, value) {
+    setStaffSearch((current) => ({ ...current, [field]: value }));
   }
 
-  function handleAdminFilterReset() {
-    setAdminFilters(DEFAULT_ADMIN_FILTERS);
+  function handleStaffSearchSubmit() {
+    setAppliedStaffSearch({ ...staffSearch });
   }
 
-  async function handleStart() {
+  function handleStaffSearchReset() {
+    setStaffSearch(DEFAULT_STAFF_SEARCH);
+    setAppliedStaffSearch(DEFAULT_STAFF_SEARCH);
+  }
+
+  function handleManagerStaffFilterChange(field, value) {
+    setManagerStaffFilters((current) => ({ ...current, [field]: value }));
+  }
+
+  function handleManagerStaffFilterReset() {
+    setManagerStaffFilters(DEFAULT_MANAGER_STAFF_FILTERS);
+  }
+
+  async function handleCreateStaff(form) {
+    setStaffCreationLoading(true);
+    setStaffCreationNotice('');
+
+    try {
+      const created = await createStaffAccount(form);
+      const clinicLabel = created.clinic_id || form.clinicId;
+      setStaffCreationNotice(`${created.full_name} was added for ${clinicLabel}.`);
+      if (currentUser?.role === 'manager') {
+        await refreshManagerStaffDirectory(managerStaffFilters);
+      }
+      return true;
+    } catch (error) {
+      setStaffCreationNotice(error.message || 'Unable to create staff account');
+      return false;
+    } finally {
+      setStaffCreationLoading(false);
+    }
+  }
+
+  async function handleUpdateProfile(payload) {
+    setProfileSaving(true);
+    setProfileNotice('');
+    try {
+      const updated = await updateMyProfile(payload);
+      setCurrentUser(updated);
+      setProfileNotice('Profile updated successfully.');
+      return { ok: true, patient: updated };
+    } catch (error) {
+      const message = error.message || 'Unable to update profile';
+      setProfileNotice(message);
+      return { ok: false, message };
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
+  function handleNavigateToAccountSection(section) {
+    setCurrentPage('account');
+    setAccountSection(section || defaultAccountSectionForUser(currentUser));
+  }
+
+  async function handleStart(targetClinicId = clinicId) {
+    if (!targetClinicId) {
+      return;
+    }
+
     setLoading(true);
     setResults(null);
     setMessages([]);
     setDone(false);
+    setBookingNotice('');
     setIsModalOpen(true);
 
     try {
-      const res = await startChat(clinicId);
-      setSessionId(res.session_id);
-      setDisclaimers(res.disclaimers || []);
-      setMessages([{ role: 'assistant', content: res.assistant_message }]);
+      const response = await startChat(targetClinicId);
+      setSessionId(response.session_id);
+      setDisclaimers(response.disclaimers || []);
+      setMessages([{ role: 'assistant', content: response.assistant_message }]);
       setProgress({ turn_count: 0, max_turns: 10 });
     } finally {
       setLoading(false);
@@ -200,29 +451,34 @@ export default function App() {
   }
 
   async function handleSend(userText) {
-    if (!hasSession || done) return;
+    if (!hasSession || done) {
+      return;
+    }
 
-    setMessages((m) => [...m, { role: 'user', content: userText }]);
+    setMessages((current) => [...current, { role: 'user', content: userText }]);
     setLoading(true);
 
     try {
-      const res = await chatTurn(sessionId, userText);
-      setMessages((m) => [...m, { role: 'assistant', content: res.assistant_message }]);
-      setDone(!!res.done);
-      setProgress(res.progress || progress);
+      const response = await chatTurn(sessionId, userText);
+      setMessages((current) => [...current, { role: 'assistant', content: response.assistant_message }]);
+      setDone(Boolean(response.done));
+      setProgress(response.progress || progress);
     } finally {
       setLoading(false);
     }
   }
 
   async function handleFinish() {
-    if (!hasSession) return;
+    if (!canFinishAssessment) {
+      return;
+    }
+
     setLoading(true);
     try {
-      const res = await endChat(sessionId);
+      const response = await endChat(sessionId);
       const isEmergencyResult =
-        String(res?.urgency_band || '').toLowerCase() === 'high' &&
-        String(res?.visit_category || '').toLowerCase() === 'urgent';
+        String(response?.urgency_band || '').toLowerCase() === 'high' &&
+        String(response?.visit_category || '').toLowerCase() === 'urgent';
 
       if (isEmergencyResult) {
         setIsModalOpen(false);
@@ -230,21 +486,11 @@ export default function App() {
         return;
       }
 
-      setResults(res);
+      setResults(response);
       setIsModalOpen(false);
     } finally {
       setLoading(false);
     }
-  }
-
-  function handleReset() {
-    setSessionId('');
-    setMessages([]);
-    setDisclaimers([]);
-    setProgress({ turn_count: 0, max_turns: 10 });
-    setDone(false);
-    setResults(null);
-    setAppointmentNotice('');
   }
 
   async function handleResetAndRestart() {
@@ -254,16 +500,60 @@ export default function App() {
     setDone(false);
     setDisclaimers([]);
     setProgress({ turn_count: 0, max_turns: 10 });
+    setBookingNotice('');
 
     try {
-      const res = await startChat(clinicId);
-      setSessionId(res.session_id);
-      setDisclaimers(res.disclaimers || []);
-      setMessages([{ role: 'assistant', content: res.assistant_message }]);
+      const response = await startChat(clinicId);
+      setSessionId(response.session_id);
+      setDisclaimers(response.disclaimers || []);
+      setMessages([{ role: 'assistant', content: response.assistant_message }]);
       setProgress({ turn_count: 0, max_turns: 10 });
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleBookAppointmentFromResults() {
+    const targetClinicId = selectedClinic?.id || clinicId || clinics[0]?.id || '';
+    if (!results || !targetClinicId) {
+      setBookingNotice('Complete the chatbot assessment first.');
+      return;
+    }
+
+    const assessment = {
+      sessionId,
+      clinicId: targetClinicId,
+      results,
+    };
+
+    if (!currentUser) {
+      setPendingBooking(assessment);
+      setAuthError('Sign in or register as a patient to complete this booking.');
+      setCurrentPage('account');
+      setAccountSection('auth');
+      return;
+    }
+
+    if (currentUser.role !== 'patient') {
+      setBookingNotice('Please use a patient account to book an appointment.');
+      return;
+    }
+
+    await bookAppointmentFromAssessment(assessment);
+  }
+
+  async function handleBeginBookingJourney() {
+    const targetClinicId = clinicId || clinics[0]?.id || '';
+    if (!targetClinicId) {
+      return;
+    }
+
+    setCurrentPage('home');
+    if (!clinicId) {
+      setClinicId(targetClinicId);
+    }
+    handleReset();
+    await handleStart(targetClinicId);
   }
 
   function renderHomePage() {
@@ -290,16 +580,16 @@ export default function App() {
 
               <div className="row">
                 {!hasSession ? (
-                  <button className="btn" onClick={handleStart} disabled={!clinicId || loading}>
+                  <button className="btn" onClick={() => handleStart(clinicId)} disabled={!clinicId || loading}>
                     Start intake
                   </button>
                 ) : (
                   <>
-                    {!results && (
-                      <button className="btn" onClick={handleFinish} disabled={loading}>
-                        Finish
+                    {!results ? (
+                      <button className="btn" onClick={() => setIsModalOpen(true)} disabled={loading}>
+                        {done ? 'Review chat' : 'Resume intake'}
                       </button>
-                    )}
+                    ) : null}
                     <button className="btn secondary" onClick={handleReset} disabled={loading}>
                       Reset
                     </button>
@@ -313,8 +603,8 @@ export default function App() {
                 <div className="disclaimer-title">Important</div>
                 <div className="disclaimer-subtitle">This is not a diagnosis. Wait-time estimates are not guaranteed.</div>
                 <div className="disclaimer-list">
-                  {activeDisclaimers.map((item, idx) => (
-                    <div key={idx}>• {item}</div>
+                  {activeDisclaimers.map((item, index) => (
+                    <div key={index}>- {item}</div>
                   ))}
                 </div>
               </div>
@@ -325,14 +615,20 @@ export default function App() {
         {results ? (
           <section className="grid">
             <div className="panel">
-              <ResultsView results={results} clinic={selectedClinic} />
+              <ResultsView
+                results={results}
+                clinic={selectedClinic}
+                onBookNow={handleBookAppointmentFromResults}
+                bookingLoading={bookingLoading}
+                bookingNotice={bookingNotice}
+              />
             </div>
           </section>
         ) : null}
 
         <FloatingButton
           onClick={() => setIsModalOpen(true)}
-          onStartSession={handleStart}
+          onStartSession={() => handleStart(clinicId)}
           isActive={isModalOpen}
           hasSession={hasSession}
           disabled={!clinicId || loading}
@@ -349,10 +645,10 @@ export default function App() {
           onFinish={handleFinish}
           onReset={handleResetAndRestart}
           loading={loading}
-          hasResults={!!results}
+          hasResults={Boolean(results)}
         />
 
-        {loading && <div className="toast">Working...</div>}
+        {loading ? <div className="toast">Working...</div> : null}
       </div>
     );
   }
@@ -366,27 +662,53 @@ export default function App() {
           setCurrentPage('home');
           handleReset();
         }}
+        currentUser={currentUser}
+        accountSection={accountSection}
+        onNavigateToAccountSection={handleNavigateToAccountSection}
+        onLogout={handleLogout}
       />
 
       {currentPage === 'home' ? renderHomePage() : null}
-      {currentPage === 'login-demos' ? (
-        <LoginDemosPage
+      {currentPage === 'account' ? (
+        <AccountPage
           currentUser={currentUser}
+          activeSection={accountSection}
           demoUsers={demoUsers}
           authLoading={authLoading}
           authError={authError}
+          bookingIntentActive={Boolean(pendingBooking)}
+          onLogin={handleLogin}
+          onRegister={handleRegister}
           onDemoLogin={handleDemoLogin}
-          onLogout={handleLogout}
+          clinics={clinics}
           appointments={appointments}
           appointmentsLoading={appointmentsLoading}
           appointmentNotice={appointmentNotice}
-          adminFilters={adminFilters}
-          clinics={clinics}
-          onAdminFilterChange={handleAdminFilterChange}
-          onAdminFilterReset={handleAdminFilterReset}
-          adminResults={adminResults}
-          adminLoading={adminLoading}
-          adminError={adminError}
+          onBeginBookingJourney={handleBeginBookingJourney}
+          bookingLoading={bookingLoading}
+          bookingNotice={bookingNotice}
+          staffSearch={staffSearch}
+          onStaffSearchChange={handleStaffSearchChange}
+          onStaffSearchSubmit={handleStaffSearchSubmit}
+          onStaffSearchReset={handleStaffSearchReset}
+          staffAppointments={staffAppointments}
+          staffLoading={staffLoading}
+          staffError={staffError}
+          managerStaffFilters={managerStaffFilters}
+          onManagerStaffFilterChange={handleManagerStaffFilterChange}
+          onManagerStaffFilterReset={handleManagerStaffFilterReset}
+          managerStaffDirectory={managerStaffDirectory}
+          managerStaffLoading={managerStaffLoading}
+          managerStaffError={managerStaffError}
+          onCreateStaff={handleCreateStaff}
+          staffCreationLoading={staffCreationLoading}
+          staffCreationNotice={staffCreationNotice}
+          profileSaving={profileSaving}
+          profileNotice={profileNotice}
+          onUpdateProfile={handleUpdateProfile}
+          isAddMemberFormOpen={isAddMemberFormOpen}
+          onOpenAddMemberForm={() => setIsAddMemberFormOpen(true)}
+          onCloseAddMemberForm={() => setIsAddMemberFormOpen(false)}
         />
       ) : null}
       {currentPage === 'about' ? <AboutPage /> : null}
@@ -396,3 +718,4 @@ export default function App() {
     </div>
   );
 }
+

@@ -8,7 +8,7 @@ from app.auth.utils import get_authenticated_patient
 from app.config.loader import get_clinic_by_id
 from app.models.schemas import ChatEndOut, ChatStartOut, ChatTurnOut
 from app.storage.db import get_conn
-from app.storage.repo import SessionRepo
+from app.storage.repo import PatientRepo, SessionRepo
 
 router = APIRouter()
 
@@ -74,7 +74,6 @@ def _validate_required_string(
     return cleaned
 
 
-
 def _session_output_exists(session_id: str) -> bool:
     conn = get_conn()
     try:
@@ -85,6 +84,19 @@ def _session_output_exists(session_id: str) -> bool:
         return row is not None
     finally:
         conn.close()
+
+
+def _patient_context_from_session(request: Request, session: dict[str, Any] | None = None) -> str | None:
+    patient = get_authenticated_patient(request)
+    patient_id = None
+    if patient and str(patient.get('role') or 'patient').lower() == 'patient':
+        patient_id = patient['patient_id']
+    elif session and session.get('patient_id'):
+        patient_id = str(session['patient_id'])
+
+    if not patient_id:
+        return None
+    return PatientRepo().build_patient_chat_context(patient_id)
 
 
 @router.post(
@@ -114,9 +126,10 @@ async def chat_start(request: Request):
         repo = SessionRepo()
         patient = get_authenticated_patient(request)
         session_id = repo.create_session(clinic_id=clinic_id, patient_id=patient['patient_id'] if patient else None)
+        patient_context = _patient_context_from_session(request, {'patient_id': patient['patient_id']} if patient else None)
 
         orchestrator = ChatOrchestrator()
-        assistant_message, disclaimers = orchestrator.first_message(clinic=clinic)
+        assistant_message, disclaimers = orchestrator.first_message(clinic=clinic, patient_context=patient_context)
 
         repo.append_message(session_id, role='assistant', content=assistant_message)
         return ChatStartOut(
@@ -164,6 +177,7 @@ async def chat_turn(request: Request):
         patient = get_authenticated_patient(request)
         if patient and not session.get('patient_id'):
             repo.attach_patient(session_id, patient['patient_id'])
+            session = repo.get_session(session_id)
 
         clinic = get_clinic_by_id(session['clinic_id'])
         if not clinic:
@@ -175,6 +189,7 @@ async def chat_turn(request: Request):
         assistant_message, done, progress = orchestrator.next_turn(
             clinic=clinic,
             transcript=repo.get_transcript(session_id),
+            patient_context=_patient_context_from_session(request, session),
         )
 
         repo.append_message(session_id, role='assistant', content=assistant_message)
@@ -220,6 +235,7 @@ async def chat_end(request: Request):
         patient = get_authenticated_patient(request)
         if patient and not session.get('patient_id'):
             repo.attach_patient(session_id, patient['patient_id'])
+            session = repo.get_session(session_id)
 
         if _session_output_exists(session_id):
             return _error(409, 'Session has already been finalized', 'SESSION_FINALIZED')
@@ -234,6 +250,7 @@ async def chat_end(request: Request):
         result = orchestrator.finalize(
             clinic=clinic,
             transcript=transcript,
+            patient_context=_patient_context_from_session(request, session),
         )
         result['session_id'] = session_id
 

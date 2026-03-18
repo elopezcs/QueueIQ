@@ -1,58 +1,44 @@
-# QueueIQ - CareFlow
+# QueueIQ QueueControl
 
-## Queue Control
+QueueControl handles rush-hour simulations, queue management, the live dashboard, and queue APIs.
 
-## 👥 Author
+## Preferred local run
 
-Mostafa Allahmoradi
-Rohit Iyer
+Use the shared root `.venv` from the repository root. QueueControl-specific virtual environments are no longer part of the supported setup.
 
-## Overview
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe app.py
+```
 
-The QueueControl folder handles the core logic for the QueueIQ project including rush-hour simulations, queue management, live queue data streaming for multiple clinics, and many more features.
+That launcher starts:
+- QueueControl simulator in the background
+- QueueControl backend on `http://127.0.0.1:8001/docs`
+- QueueControl dashboard on `http://127.0.0.1:8501`
 
-## 🎯 How to Run:
+## Manual QueueControl-only run
 
-1. **Go to QueueControl folder**
-    ```bash
-    cd QueueControl
-    ```
+Simulator:
 
-2. **Create a Virtual Environment**
-* Windows:
-    ```bash
-   python -m venv .venv
-   ```
+```powershell
+.\.venv\Scripts\python.exe QueueControl\queue-simulation\backend-queue-simulation.py
+```
 
-* macOS / Linux:
-```bash
-   python3 -m venv venv
-   ```
+API:
 
-3. **Activate the Virtual Environment**
-* On Windows (Command Prompt):
-    ```bash
-   .venv\Scripts\Activate
-   ```
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --app-dir QueueControl\backend
+```
 
-* On macOS / Linux:
-    ```bash
-   source venv/bin/activate
-   ```
+Dashboard:
 
-4. **Install Required Dependencies:**
+```powershell
+.\.venv\Scripts\python.exe -m streamlit run QueueControl\queue-simulation\frontend-dashboard.py --server.address 127.0.0.1 --server.port 8501
+```
 
-   ```bash
-   pip install pandas numpy streamlit
-   ```    
+## Notes
 
-5. **Run queue simulation**
-    ```bash
-    python queue-simulation\backend-queue-simulation.py
-    ```
-6. **Open a new CLI**
-
-7. **Run live streaming queue dashboard**
-    ```bash
-    streamlit run queue-simulation\frontend-dashboard.py
-    ```
+- Use the root `requirements.txt` as the shared dependency file for the full workspace.
+- The simulator keeps `QueueControl/clinic_queue.csv` moving so the dashboard and queue API have live data to show.

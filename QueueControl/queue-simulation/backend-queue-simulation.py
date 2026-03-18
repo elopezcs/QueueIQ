@@ -159,7 +159,7 @@ def run_simulation():
     # State: Tracking free times for doctors
     doctors_free_at = {cid: [datetime.now()] * NUM_DOCTORS_PER_CLINIC for cid in CLINIC_IDS}
     
-    print(f"--- 🏥 MULTI-CLINIC SIMULATION STARTED ---")
+    print("--- MULTI-CLINIC SIMULATION STARTED ---")
     print(f"Tracking {len(CLINIC_IDS)} clinics with {NUM_DOCTORS_PER_CLINIC} doctors each.")
     
     while True:
@@ -195,12 +195,11 @@ def run_simulation():
                             wait_min = (now - patient['arrival_dt']).total_seconds() / 60
                             
                             # --- UPDATE DATAFRAME IN-PLACE ---
-                        mark_patient_seen(
-                                record_id=int(patient['record_id']),
-                                actual_wait_minutes=float(wait_min)
-                           )
-
-                        print(f"👨‍⚕️ [{cid}] Doc {i+1} took Patient {patient['patient_id']} (Waited: {wait_min:.1f}m, Free in {duration_min}s)")
+                            idx = patient.name 
+                            df.at[idx, 'seen_doctor'] = True
+                            df.at[idx, 'actual_wait_minutes'] = wait_min
+                            
+                            print(f"[DOCTOR] [{cid}] Doc {i+1} took Patient {patient['id']} (Waited: {wait_min:.1f}s, Free in {duration_min}s)")
                             
                         waiting_patients = waiting_patients.iloc[1:] 
                         updated = True
@@ -265,7 +264,7 @@ def run_simulation():
                          est_duration=get_duration(acuity)
                     )
                     
-                    print(f"🔔 Walk-in [{now.strftime('%Y-%m-%d %H:%M:%S')}] at clinic {cid}: Patient {new_id} added with dynamic Surge Probability of {current_prob * 100:.1f}%")
+                    print(f"[WALK-IN] [{now.strftime('%Y-%m-%d %H:%M:%S')}] at clinic {cid}: Patient {new_id} added with dynamic surge probability of {current_prob * 100:.1f}%")
                     updated = True
 
             # 4. WRITE UPDATES

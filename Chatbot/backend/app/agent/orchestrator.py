@@ -5,11 +5,11 @@ from typing import Any
 from app.agent.llm_client import LLMClient
 from app.agent.prompts import (
     DEFAULT_DISCLAIMERS,
-    prompt_next_question,
     prompt_final_classification,
+    prompt_next_question,
 )
+from app.agent.queue_risk import estimate_wait_minutes, mock_queue_snapshot
 from app.agent.safety import SafetyGuard
-from app.agent.queue_risk import mock_queue_snapshot, estimate_wait_minutes
 from app.config.loader import clinic_config_snapshot_hash
 from app.core.settings import settings
 
@@ -31,9 +31,9 @@ def format_clinic_context(clinic: dict[str, Any]) -> str:
 
 def transcript_to_text(transcript: list[dict[str, Any]]) -> str:
     lines = []
-    for m in transcript:
-        role = m.get("role", "unknown")
-        content = (m.get("content") or "").strip()
+    for message in transcript:
+        role = message.get("role", "unknown")
+        content = (message.get("content") or "").strip()
         lines.append(f"{role.upper()}: {content}")
     return "\n".join(lines).strip()
 
@@ -44,12 +44,18 @@ class ChatOrchestrator:
         self.safety = SafetyGuard()
         self.max_turns = settings.max_turns
 
-    def first_message(self, clinic: dict[str, Any]) -> tuple[str, list[str]]:
+    def first_message(self, clinic: dict[str, Any], patient_context: str | None = None) -> tuple[str, list[str]]:
+        personalized_note = (
+            "\n\nI can also use the profile and visit details already saved on your account to avoid repeating background questions."
+            if patient_context
+            else ""
+        )
         msg = (
-            f"Welcome. I can help collect intake details for {clinic.get('name')}." "\n\n"
-            "I will ask a few short questions for operational queue planning. "
-            "This is not a medical diagnosis." "\n\n"
-            "What brings you in today, in one or two sentences?"
+            f"Welcome. I can help collect intake details for {clinic.get('name')}."
+            "\n\nI will ask a few short questions for operational queue planning. "
+            "This is not a medical diagnosis."
+            f"{personalized_note}"
+            "\n\nWhat brings you in today, in one or two sentences?"
         )
         return msg, DEFAULT_DISCLAIMERS
 
@@ -57,9 +63,9 @@ class ChatOrchestrator:
         self,
         clinic: dict[str, Any],
         transcript: list[dict[str, Any]],
+        patient_context: str | None = None,
     ) -> tuple[str, bool, dict[str, int]]:
-        # turn_count counts user turns (excluding assistant messages)
-        turn_count = sum(1 for m in transcript if m.get("role") == "user")
+        turn_count = sum(1 for message in transcript if message.get("role") == "user")
         transcript_text = transcript_to_text(transcript)
 
         safety = self.safety.check(transcript_text)
@@ -68,8 +74,7 @@ class ChatOrchestrator:
 
         if turn_count >= self.max_turns:
             return (
-                "Thanks. I have enough information to generate operational results. "
-                "Please tap “Finish” to see them.",
+                "Thanks. I have enough information to generate operational results. Please tap 'Finish' to see them.",
                 True,
                 {"turn_count": turn_count, "max_turns": self.max_turns},
             )
@@ -77,16 +82,15 @@ class ChatOrchestrator:
         clinic_context = format_clinic_context(clinic)
 
         if not self.llm.enabled:
-            # Stub behavior: ask a short fixed sequence, then stop.
             scripted = [
                 "How long have these symptoms or concerns been going on?",
                 "Is there an injury involved, such as a fall or cut?",
-                "Any constraints today, like needing to leave by a certain time?",
+                "Any timing constraints today, like needing to leave by a certain hour?",
             ]
             idx = min(turn_count, len(scripted) - 1)
             next_q = scripted[idx]
-            done = (turn_count >= len(scripted))
-            return next_q if not done else "Thanks. Tap “Finish” to see operational results.", done, {
+            done = turn_count >= len(scripted)
+            return next_q if not done else "Thanks. Tap 'Finish' to see operational results.", done, {
                 "turn_count": turn_count,
                 "max_turns": self.max_turns,
             }
@@ -97,6 +101,7 @@ class ChatOrchestrator:
                 transcript=transcript_text,
                 turn_count=turn_count,
                 max_turns=self.max_turns,
+                patient_context=patient_context,
             )
         )
 
@@ -110,8 +115,7 @@ class ChatOrchestrator:
 
         if decision == "STOP":
             return (
-                "Thanks. I have enough information to generate operational results. "
-                "Please tap “Finish” to see them.",
+                "Thanks. I have enough information to generate operational results. Please tap 'Finish' to see them.",
                 True,
                 {"turn_count": turn_count, "max_turns": self.max_turns},
             )
@@ -121,7 +125,7 @@ class ChatOrchestrator:
             next_question = "Could you share a bit more detail about what you need help with today?"
         return next_question, False, {"turn_count": turn_count, "max_turns": self.max_turns}
 
-    def finalize(self, clinic: dict[str, Any], transcript: list[dict[str, Any]]) -> dict[str, Any]:
+    def finalize(self, clinic: dict[str, Any], transcript: list[dict[str, Any]], patient_context: str | None = None) -> dict[str, Any]:
         transcript_text = transcript_to_text(transcript)
         clinic_context = format_clinic_context(clinic)
 
@@ -133,9 +137,11 @@ class ChatOrchestrator:
         elif not self.llm.enabled:
             urgency_band = "medium"
             visit_category = "general"
-            explanation = "Operational estimate based on the intake summary (stub mode)."
+            explanation = "Operational estimate based on your intake answers and any saved profile details available in stub mode."
         else:
-            data = self.llm.generate_json(prompt_final_classification(clinic_context, transcript_text))
+            data = self.llm.generate_json(
+                prompt_final_classification(clinic_context, transcript_text, patient_context=patient_context)
+            )
             urgency_band = str(data.get("urgency_band", "medium")).lower()
             if urgency_band not in ["low", "medium", "high"]:
                 urgency_band = "medium"
@@ -146,11 +152,11 @@ class ChatOrchestrator:
         servers_total = int(capacity.get("servers_total", 3))
         avg_service_minutes = int(capacity.get("avg_service_minutes", 12))
 
-        snap = mock_queue_snapshot(clinic_id=clinic.get("id", "unknown"), servers_total=servers_total)
+        snapshot = mock_queue_snapshot(clinic_id=clinic.get("id", "unknown"), servers_total=servers_total)
         p50, p90 = estimate_wait_minutes(
-            queue_length=int(snap["queue_length"]),
-            servers_busy=int(snap["servers_busy"]),
-            servers_total=int(snap["servers_total"]),
+            queue_length=int(snapshot["queue_length"]),
+            servers_busy=int(snapshot["servers_busy"]),
+            servers_total=int(snapshot["servers_total"]),
             avg_service_minutes=avg_service_minutes,
         )
 
