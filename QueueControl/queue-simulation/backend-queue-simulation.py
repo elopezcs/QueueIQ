@@ -5,25 +5,106 @@ import os
 from datetime import datetime, timedelta
 import joblib
 import numpy as np
+import psycopg2
 
+# -----------------------------
+# DATABASE CONNECTION (Neon)
+# -----------------------------
+DATABASE_URL = "postgresql://neondb_owner:npg_ew9lIT7oOJMh@ep-super-bar-a8wl4ci7-pooler.eastus2.azure.neon.tech/neondb" 
+
+def get_connection():
+    return psycopg2.connect(DATABASE_URL)
+
+def init_db():
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS clinic_queue (
+            record_id SERIAL PRIMARY KEY,
+            clinic_id VARCHAR(100) NOT NULL,
+            patient_id INTEGER NOT NULL,
+            arrival_time TIMESTAMP NOT NULL,
+            acuity INTEGER NOT NULL,
+            est_duration INTEGER NOT NULL,
+            seen_doctor BOOLEAN DEFAULT FALSE,
+            actual_wait_minutes DOUBLE PRECISION
+        );
+    """)
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+# -----------------------------
+# Database helper functions
+# -----------------------------
+
+def insert_patient(clinic_id, patient_id, arrival_time, acuity, est_duration):
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        INSERT INTO clinic_queue
+        (clinic_id, patient_id, arrival_time, acuity, est_duration, seen_doctor)
+        VALUES (%s, %s, %s, %s, %s, %s)
+    """, (clinic_id, patient_id, arrival_time, acuity, est_duration, False))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+# Read queue data from Neon
+def fetch_queue():
+
+    conn = get_connection()
+
+    query = """
+    SELECT *
+    FROM clinic_queue
+    ORDER BY clinic_id, seen_doctor, acuity, arrival_time
+    """
+
+    df = pd.read_sql_query(query, conn)
+
+    conn.close()
+
+    return df
+
+# Update patient after doctor sees them
+def mark_patient_seen(record_id, actual_wait_minutes):
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        UPDATE clinic_queue
+        SET seen_doctor = TRUE,
+        actual_wait_minutes = %s
+        WHERE record_id = %s
+    """, (actual_wait_minutes, record_id))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    
 # Load the model once when the application starts
-MODEL_PATH = "models/queueiq_xgb_model.joblib"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.abspath(
+    os.path.join(SCRIPT_DIR, "..", "models", "queueiq_xgb_model.joblib")
+)
+
+print("SCRIPT_DIR:", SCRIPT_DIR)
+print("MODEL_PATH:", MODEL_PATH)
+print("MODEL EXISTS:", os.path.exists(MODEL_PATH))
+
 xgb_model = joblib.load(MODEL_PATH)
 
 # --- CONFIGURATION ---
-CSV_FILE = "clinic_queue.csv"
 CLINIC_IDS = ["Downtown-Clinic", "Uptown-Clinic", "Westside-Clinic"] # Our 3 locations
 NUM_DOCTORS_PER_CLINIC = 2
 SIM_SPEED = 2  # Seconds between "ticks"
-
-def init_csv():
-    if not os.path.exists(CSV_FILE):
-        df = pd.DataFrame(columns=[
-            "clinic_id", "id", "arrival_time", "acuity", 
-            "est_duration", "seen_doctor", "actual_wait_minutes"
-        ])
-        df.to_csv(CSV_FILE, index=False)
-        print("Created new multi-clinic clinic_queue.csv")
 
 def get_duration(acuity):
     return {1: 60, 2: 40, 3: 20, 4: 10, 5: 5}[acuity]
@@ -64,7 +145,6 @@ def get_surge_probability(current_time: datetime, current_queue_length: int, arr
     # 4. Predict probability
     # predict_proba returns an array like [[prob_class_0, prob_class_1]]
     probability = xgb_model.predict_proba(features)[0][1]
-    
     return round(float(probability), 4)
 
 def get_time_label(hour):
@@ -74,7 +154,7 @@ def get_time_label(hour):
     return "Normal Volume"
 
 def run_simulation():
-    init_csv()
+    init_db()
     
     # State: Tracking free times for doctors
     doctors_free_at = {cid: [datetime.now()] * NUM_DOCTORS_PER_CLINIC for cid in CLINIC_IDS}
@@ -84,29 +164,13 @@ def run_simulation():
     
     while True:
         try:
-            # 1. READ QUEUE
-            try:
-                df = pd.read_csv(CSV_FILE)
-            except pd.errors.EmptyDataError:
-                df = pd.DataFrame(columns=[
-                    "clinic_id", "id", "arrival_time", "acuity", 
-                    "est_duration", "seen_doctor", "actual_wait_minutes"
-                ])
-            except PermissionError:
-                time.sleep(0.1)
-                continue
+            # 1. READ QUEUE FROM POSTGRESQL
+            df = fetch_queue()
 
-            # Ensure data types are correct when reading from CSV
             if not df.empty:
-                # Safely parse strings to actual booleans to avoid "False" evaluating to True
-                if df['seen_doctor'].dtype == object:
-                    df['seen_doctor'] = df['seen_doctor'].map(
-                        {'True': True, 'False': False, 'true': True, 'false': False, True: True, False: False}
-                    ).fillna(False).astype(bool)
-                else:
-                    df['seen_doctor'] = df['seen_doctor'].astype(bool)
-                    
+                df['seen_doctor'] = df['seen_doctor'].fillna(False).astype(bool)
                 df['actual_wait_minutes'] = pd.to_numeric(df['actual_wait_minutes'], errors='coerce')
+                df['arrival_dt'] = pd.to_datetime(df['arrival_time'])
 
             updated = False
             now = datetime.now()
@@ -128,17 +192,18 @@ def run_simulation():
                             
                             doctors_free_at[cid][i] = now + timedelta(seconds=duration_min) 
                             
-                            wait_min = (now - patient['arrival_dt']).total_seconds()
+                            wait_min = (now - patient['arrival_dt']).total_seconds() / 60
                             
                             # --- UPDATE DATAFRAME IN-PLACE ---
-                            idx = patient.name 
-                            df.at[idx, 'seen_doctor'] = True
-                            df.at[idx, 'actual_wait_minutes'] = wait_min
+                        mark_patient_seen(
+                                record_id=int(patient['record_id']),
+                                actual_wait_minutes=float(wait_min)
+                           )
+
+                        print(f"👨‍⚕️ [{cid}] Doc {i+1} took Patient {patient['patient_id']} (Waited: {wait_min:.1f}m, Free in {duration_min}s)")
                             
-                            print(f"👨‍⚕️ [{cid}] Doc {i+1} took Patient {patient['id']} (Waited: {wait_min:.1f}m, Free in {duration_min}s)")
-                            
-                            waiting_patients = waiting_patients.iloc[1:] 
-                            updated = True
+                        waiting_patients = waiting_patients.iloc[1:] 
+                        updated = True
 
             # 3. DYNAMIC ARRIVALS (Walk-ins for each clinic)
             # current_prob = get_arrival_probability(current_hour)
@@ -192,29 +257,18 @@ def run_simulation():
                     new_id = random.randint(1000, 9999)
                     acuity = random.choices([1, 2, 3, 4, 5], weights=[5, 10, 50, 25, 10])[0]
                     
-                    new_p = {
-                        "clinic_id": cid,
-                        "id": new_id,
-                        "arrival_time": now.strftime("%Y-%m-%d %H:%M:%S"), 
-                        "acuity": acuity,
-                        "est_duration": get_duration(acuity),
-                        "seen_doctor": False,
-                        "actual_wait_minutes": None
-                    }
-                    
-                    new_row_df = pd.DataFrame([new_p])
-                    df = pd.concat([df, new_row_df], ignore_index=True)
+                    insert_patient(
+                         clinic_id=cid,
+                         patient_id=new_id,
+                         arrival_time=now,
+                         acuity=acuity,
+                         est_duration=get_duration(acuity)
+                    )
                     
                     print(f"🔔 Walk-in [{now.strftime('%Y-%m-%d %H:%M:%S')}] at clinic {cid}: Patient {new_id} added with dynamic Surge Probability of {current_prob * 100:.1f}%")
                     updated = True
 
             # 4. WRITE UPDATES
-            if updated:
-                # Drop the temporary datetime object column before saving back to CSV
-                if 'arrival_dt' in df.columns:
-                    df = df.drop(columns=['arrival_dt'])
-                df.to_csv(CSV_FILE, index=False)
-
             time.sleep(SIM_SPEED)
 
         except Exception as e:

@@ -4,8 +4,13 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report, roc_auc_score
 import xgboost as xgb
 import joblib
+import os
 
-DATA_PATH = "data/synthetic_data/clinic_historical_data.csv"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_PATH = os.path.join(SCRIPT_DIR, "data", "synthetic_data", "clinic_historical_data.csv")
+
+print("DATA_PATH:", DATA_PATH)
+print("DATA EXISTS:", os.path.exists(DATA_PATH))
 MODEL_PATH = "models/queueiq_xgb_model.joblib"
 
 def train_model():
