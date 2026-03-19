@@ -4,6 +4,11 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from API.router_registry import register_routers
+from Chatbot.backend.app.core.logging import configure_logging
+from Chatbot.backend.app.core.settings import settings
+from Chatbot.backend.app.storage.db import init_db
+
 
 
 def _ensure_legacy_app_alias() -> None:
@@ -24,10 +29,6 @@ def _ensure_legacy_app_alias() -> None:
 
 _ensure_legacy_app_alias()
 
-from API.router_registry import register_routers
-from Chatbot.backend.app.core.logging import configure_logging
-from Chatbot.backend.app.core.settings import settings
-from Chatbot.backend.app.storage.db import init_db
 
 
 def create_app() -> FastAPI:
