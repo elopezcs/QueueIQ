@@ -2,10 +2,10 @@ from datetime import datetime, time, timezone
 
 from fastapi import APIRouter, Request
 
-from app.auth.utils import error_response, get_authenticated_patient
-from app.config.loader import get_clinic_by_id
-from app.models.schemas import AdminResultOut, AdminResultsOut
-from app.storage.repo import AdminRepo
+from Chatbot.backend.app.auth.utils import error_response, get_authenticated_patient
+from Chatbot.backend.app.config.loader import get_clinic_by_id
+from Chatbot.backend.app.models.schemas import AdminResultOut, AdminResultsOut
+from Chatbot.backend.app.storage.repo import AdminRepo
 
 router = APIRouter(prefix='/admin', tags=['admin'])
 _ALLOWED_URGENCY = {'low', 'medium', 'high'}

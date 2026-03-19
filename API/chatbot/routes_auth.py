@@ -3,8 +3,8 @@ import secrets
 
 from fastapi import APIRouter, Request
 
-from app.auth.demo_accounts import DEMO_USER_BY_EMAIL
-from app.auth.utils import (
+from Chatbot.backend.app.auth.demo_accounts import DEMO_USER_BY_EMAIL
+from Chatbot.backend.app.auth.utils import (
     error_response,
     get_authenticated_patient,
     get_json_body,
@@ -17,9 +17,9 @@ from app.auth.utils import (
     validate_password,
     verify_password,
 )
-from app.config.loader import get_clinic_by_id
-from app.core.settings import settings
-from app.models.schemas import (
+from Chatbot.backend.app.config.loader import get_clinic_by_id
+from Chatbot.backend.app.core.settings import settings
+from Chatbot.backend.app.models.schemas import (
     AuthSessionOut,
     DemoUserOut,
     OtpRequestOut,
@@ -29,8 +29,8 @@ from app.models.schemas import (
     StaffMemberOut,
     StaffProfessionalProfileOut,
 )
-from app.services.emailer import send_otp_email
-from app.storage.repo import AppointmentRepo, PatientRepo, iso_after_hours, iso_after_minutes
+from Chatbot.backend.app.services.emailer import send_otp_email
+from Chatbot.backend.app.storage.repo import AppointmentRepo, PatientRepo, iso_after_hours, iso_after_minutes
 
 router = APIRouter(prefix='/auth', tags=['auth'])
 

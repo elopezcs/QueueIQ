@@ -99,8 +99,8 @@ def _build_specs() -> tuple[LaunchSpec, ...]:
         LaunchSpec(
             key="chatbot-backend",
             name="Chatbot Backend",
-            cwd=ROOT_DIR / "Chatbot" / "backend",
-            command=(python, "-m", "uvicorn", "app.main:app", "--host", LOCAL_HOST, "--port", "8000"),
+            cwd=ROOT_DIR,
+            command=(python, "-m", "uvicorn", "API.main:app", "--host", LOCAL_HOST, "--port", "8000"),
             url="http://127.0.0.1:8000/docs",
             health_url="http://127.0.0.1:8000/health",
             port=8000,
