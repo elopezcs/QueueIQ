@@ -1,4 +1,4 @@
-﻿from dataclasses import dataclass
+from dataclasses import dataclass
 from typing import Sequence
 
 
@@ -36,7 +36,7 @@ QUEUEIQ_MODULES: tuple[ProductModule, ...] = (
             "Patient demo login, appointments, and admin review filters",
         ),
         run_steps=(
-            ".\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000",
+            ".\\.venv\\Scripts\\python.exe -m uvicorn API.main:app --host 127.0.0.1 --port 8000",
             "cd Chatbot/frontend",
             "npm run dev -- --host 127.0.0.1 --port 5173",
         ),

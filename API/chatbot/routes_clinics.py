@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException
-from app.config.loader import load_clinics_config, get_clinic_by_id
-from app.models.schemas import ClinicOut, ClinicStatusOut
-from app.agent.queue_risk import mock_queue_snapshot
+
+from Chatbot.backend.app.agent.queue_risk import mock_queue_snapshot
+from Chatbot.backend.app.config.loader import get_clinic_by_id, load_clinics_config
+from Chatbot.backend.app.models.schemas import ClinicOut, ClinicStatusOut
 
 router = APIRouter()
 

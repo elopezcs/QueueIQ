@@ -2,10 +2,10 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
 
-from app.auth.utils import error_response, get_authenticated_patient, get_json_body
-from app.config.loader import get_clinic_by_id
-from app.models.schemas import AdminAppointmentOut, AdminAppointmentSearchOut, AppointmentListOut, AppointmentOut
-from app.storage.repo import AppointmentRepo, SessionRepo
+from Chatbot.backend.app.auth.utils import error_response, get_authenticated_patient, get_json_body
+from Chatbot.backend.app.config.loader import get_clinic_by_id
+from Chatbot.backend.app.models.schemas import AdminAppointmentOut, AdminAppointmentSearchOut, AppointmentListOut, AppointmentOut
+from Chatbot.backend.app.storage.repo import AppointmentRepo, SessionRepo
 
 router = APIRouter(tags=['appointments'])
 _ALLOWED_TIME_BUCKETS = {'today', 'upcoming', 'past'}
