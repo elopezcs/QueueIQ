@@ -4,12 +4,6 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from API.router_registry import register_routers
-from Chatbot.backend.app.core.logging import configure_logging
-from Chatbot.backend.app.core.settings import settings
-from Chatbot.backend.app.storage.db import init_db
-
-
 
 def _ensure_legacy_app_alias() -> None:
     repo_root = Path(__file__).resolve().parents[1]
@@ -32,6 +26,11 @@ _ensure_legacy_app_alias()
 
 
 def create_app() -> FastAPI:
+    from API.router_registry import register_routers
+    from Chatbot.backend.app.core.logging import configure_logging
+    from Chatbot.backend.app.core.settings import settings
+    from Chatbot.backend.app.storage.db import init_db
+
     configure_logging()
 
     app = FastAPI(
