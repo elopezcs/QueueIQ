@@ -6,11 +6,15 @@ import joblib
 import numpy as np
 import pandas as pd
 from sqlalchemy import create_engine, text
+from urllib.parse import urlparse
 
 # -----------------------------
 # DATABASE
 # -----------------------------
 DATABASE_URL = "postgresql://neondb_owner:npg_shDqYzGe45VH@ep-morning-sound-a8wgaqeq-pooler.eastus2.azure.neon.tech/neondb"
+parsed = urlparse(DATABASE_URL)
+print("DB host:", parsed.hostname)
+print("DB name:", parsed.path.lstrip("/"))
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 # -----------------------------
