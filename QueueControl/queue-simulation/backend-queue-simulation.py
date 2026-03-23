@@ -10,7 +10,7 @@ from sqlalchemy import create_engine, text
 # -----------------------------
 # DATABASE
 # -----------------------------
-DATABASE_URL = "postgresql://neondb_owner:npg_ew9lIT7oOJMh@ep-super-bar-a8wl4ci7-pooler.eastus2.azure.neon.tech/neondb"
+DATABASE_URL = "postgresql://neondb_owner:npg_shDqYzGe45VH@ep-morning-sound-a8wgaqeq-pooler.eastus2.azure.neon.tech/neondb"
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 # -----------------------------
@@ -31,11 +31,11 @@ xgb_model = joblib.load(MODEL_PATH)
 # -----------------------------
 CLINIC_IDS = ["Downtown-Clinic", "Uptown-Clinic", "Westside-Clinic"]
 NUM_DOCTORS_PER_CLINIC = 2
-SIM_SPEED = 4  # seconds between ticks
+SIM_SPEED = 2  # seconds between ticks
 
 # est_duration is stored in seconds in this simulation
 def get_duration(acuity: int) -> int:
-    return {1: 30, 2: 20, 3: 10, 4: 6, 5: 3}[acuity]
+    return {1: 60, 2: 40, 3: 20, 4: 10, 5: 5}[acuity]
 
 
 def init_db():
@@ -189,7 +189,7 @@ def run_simulation():
                     recent_wait = 0.0
 
                 surge_prob = get_surge_probability(now, queue_len, recent_arrivals, recent_wait)
-                current_prob = 0.02 + (surge_prob * 0.18)
+                current_prob = 0.05 + (surge_prob * 0.55)
 
                 if random.random() < current_prob:
                     new_id = random.randint(1000, 9999)

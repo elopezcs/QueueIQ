@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, text
 # -----------------------------
 # DATABASE
 # -----------------------------
-DATABASE_URL = "postgresql://neondb_owner:npg_ew9lIT7oOJMh@ep-super-bar-a8wl4ci7-pooler.eastus2.azure.neon.tech/neondb"
+DATABASE_URL = "postgresql://neondb_owner:npg_shDqYzGe45VH@ep-morning-sound-a8wgaqeq-pooler.eastus2.azure.neon.tech/neondb"
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
