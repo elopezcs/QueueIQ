@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -10,6 +11,7 @@ from Chatbot.backend.app.storage.db import get_conn
 from Chatbot.backend.app.storage.repo import SessionRepo
 
 router = APIRouter()
+logger = logging.getLogger("queueiq.endpoints.chat")
 
 
 def _error(status_code: int, detail: str, error_code: str, field: str | None = None) -> JSONResponse:
@@ -111,6 +113,7 @@ async def chat_start(request: Request):
     try:
         repo = SessionRepo()
         session_id = repo.create_session(clinic_id=clinic_id)
+        logger.info("Chat session started: session_id=%s clinic_id=%s", session_id, clinic_id)
 
         orchestrator = ChatOrchestrator()
         assistant_message, disclaimers = orchestrator.first_message(clinic=clinic)
@@ -175,6 +178,7 @@ async def chat_turn(request: Request):
         if done:
             repo.mark_done(session_id)
 
+        logger.info("Chat turn processed: session_id=%s done=%s", session_id, done)
         return ChatTurnOut(
             assistant_message=assistant_message,
             done=done,
@@ -230,6 +234,7 @@ async def chat_end(request: Request):
             session_id=session_id,
             outputs=result,
         )
+        logger.info("Chat session finalized: session_id=%s run_id=%s", session_id, result.get("run_id"))
 
         return ChatEndOut(**result)
     except Exception:

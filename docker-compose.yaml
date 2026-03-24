@@ -1,0 +1,58 @@
+services:
+  chatbot-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.chatbot-backend
+    image: elopezcastaneda5061/queueiq-chatbot-backend:latest
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  chatbot-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.chatbot-frontend
+    image: elopezcastaneda5061/queueiq-chatbot-frontend:latest
+    ports:
+      - "5173:80"
+    depends_on:
+      - chatbot-backend
+    restart: unless-stopped
+
+  queuecontrol-simulator:
+    build:
+      context: .
+      dockerfile: Dockerfile.queuecontrol-simulator
+    image: elopezcastaneda5061/queueiq-queuecontrol-simulator:latest
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  queuecontrol-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.queuecontrol-backend
+    image: elopezcastaneda5061/queueiq-queuecontrol-backend:latest
+    env_file:
+      - .env
+    ports:
+      - "8001:8001"
+    depends_on:
+      - queuecontrol-simulator
+    restart: unless-stopped
+
+  queuecontrol-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.queuecontrol-dashboard
+    image: elopezcastaneda5061/queueiq-queuecontrol-dashboard:latest
+    env_file:
+      - .env
+    ports:
+      - "8501:8501"
+    depends_on:
+      - queuecontrol-simulator
+      - queuecontrol-backend
+    restart: unless-stopped

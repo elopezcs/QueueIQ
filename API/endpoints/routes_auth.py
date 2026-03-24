@@ -1,4 +1,5 @@
 import json
+import logging
 import secrets
 
 from fastapi import APIRouter, Request
@@ -33,6 +34,7 @@ from Chatbot.backend.app.services.emailer import send_otp_email
 from Chatbot.backend.app.storage.repo import AppointmentRepo, PatientRepo, iso_after_hours, iso_after_minutes
 
 router = APIRouter(prefix='/auth', tags=['auth'])
+logger = logging.getLogger("queueiq.endpoints.auth")
 
 
 def _medical_profile(patient: dict) -> PatientMedicalProfileOut | None:
@@ -364,6 +366,7 @@ async def demo_login(request: Request):
     if not refreshed:
         return error_response(500, 'Unable to create auth session', 'INTERNAL_SERVER_ERROR')
 
+    logger.info("Demo login successful: patient_id=%s role=%s", refreshed.get('patient_id'), refreshed.get('role'))
     return AuthSessionOut(token=token, patient=_profile(refreshed))
 
 
@@ -483,6 +486,7 @@ async def logout(request: Request):
         return error_response(401, 'Authentication required', 'AUTH_REQUIRED')
 
     PatientRepo().delete_auth_session(token)
+    logger.info("Logout successful: patient_id=%s", patient.get('patient_id'))
     return {'ok': True}
 
 

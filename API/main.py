@@ -1,4 +1,5 @@
 import importlib
+import logging
 import sys
 from pathlib import Path
 
@@ -22,6 +23,7 @@ def _ensure_legacy_app_alias() -> None:
 
 
 _ensure_legacy_app_alias()
+logger = logging.getLogger("queueiq.api")
 
 
 
@@ -32,6 +34,7 @@ def create_app() -> FastAPI:
     from Chatbot.backend.app.storage.db import init_db
 
     configure_logging()
+    logger.info("Creating QueueIQ FastAPI application")
 
     app = FastAPI(
         title="QueueIQ API",
@@ -47,7 +50,9 @@ def create_app() -> FastAPI:
     )
 
     init_db()
+    logger.info("Primary application database initialized")
     register_routers(app)
+    logger.info("API routers registered")
     return app
 
 
