@@ -93,6 +93,17 @@ function formatRoleLabel(value) {
   return 'Patient';
 }
 
+function formatTimeBucketLabel(value) {
+  const normalized = String(value || '').toLowerCase();
+  if (normalized === 'upcoming') {
+    return 'Upcoming';
+  }
+  if (normalized === 'past') {
+    return 'Past';
+  }
+  return 'Today';
+}
+
 function relativeLabel(value) {
   const now = new Date();
   const target = new Date(value);
@@ -808,6 +819,7 @@ export default function AccountPage({
   bookingLoading,
   bookingNotice,
   staffSearch,
+  appliedStaffSearch,
   onStaffSearchChange,
   onStaffSearchSubmit,
   onStaffSearchReset,
@@ -904,6 +916,15 @@ export default function AccountPage({
     onStaffSearchReset();
   }
 
+  const staffMatchCount = Number(staffAppointments?.total_results || 0);
+  const activeTimeBucket = appliedStaffSearch?.timeBucket || staffSearch?.timeBucket || 'today';
+  const staffTimeBucketLabel = formatTimeBucketLabel(activeTimeBucket);
+  const activeClinicLabel = resolveClinicLabel(clinics, staffAppointments?.clinic_id || currentUser?.clinic_id);
+  const fromLabel = appliedStaffSearch?.scheduledFrom ? formatDateTime(appliedStaffSearch.scheduledFrom) : 'Any start';
+  const toLabel = appliedStaffSearch?.scheduledTo ? formatDateTime(appliedStaffSearch.scheduledTo) : 'Any end';
+  const staffLoadBand = staffMatchCount >= 18 ? 'high' : staffMatchCount >= 8 ? 'medium' : 'low';
+  const staffLoadLabel = staffLoadBand === 'high' ? 'High Load' : staffLoadBand === 'medium' ? 'Medium Load' : 'Low Load';
+
   return (
     <div className="page-container login-demo-page">
       <header className="page-header login-demo-header">
@@ -973,33 +994,6 @@ export default function AccountPage({
         </>
       ) : (
         <>
-          <section className="panel account-panel">
-            <div className="account-summary enhanced-account-summary role-summary-card">
-              <div className="role-summary-copy">
-                <div className="eyebrow-label">Signed In Account</div>
-                <div className="role-summary-name-row">
-                  <h2 className="role-summary-name">{currentUser.full_name}</h2>
-                  <span className={`role-badge ${currentUser.role}`}>{formatRoleLabel(currentUser.role)}</span>
-                </div>
-                <div className="role-summary-email">{currentUser.email}</div>
-                <div className="role-summary-meta">
-                  <span className="summary-meta-pill">
-                    <span className="summary-meta-label">Role</span>
-                    <strong>{formatRoleLabel(currentUser.role)}</strong>
-                  </span>
-                  <span className="summary-meta-pill">
-                    <span className="summary-meta-label">Clinic</span>
-                    <strong>{resolveClinicLabel(clinics, currentUser.clinic_id)}</strong>
-                  </span>
-                  <span className="summary-meta-pill">
-                    <span className="summary-meta-label">Status</span>
-                    <strong>{currentUser.email_verified ? 'Verified' : 'Pending verification'}</strong>
-                  </span>
-                </div>
-              </div>
-            </div>
-          </section>
-
           {currentUser.role === 'patient' && activeSection === 'my-appointments' ? (
             <>
               <section className="panel account-panel">
@@ -1078,6 +1072,29 @@ export default function AccountPage({
                 </div>
               </div>
 
+              <div className="staff-kpi-strip">
+                <article className="staff-kpi-card staff-kpi-card-strong">
+                  <div className="staff-kpi-label">Matching appointments</div>
+                  <div className="staff-kpi-value">{staffMatchCount}</div>
+                  <div className="staff-kpi-note">{staffTimeBucketLabel} window</div>
+                </article>
+                <article className="staff-kpi-card">
+                  <div className="staff-kpi-label">Assigned clinic</div>
+                  <div className="staff-kpi-text">{activeClinicLabel}</div>
+                  <div className="staff-kpi-note">Live search scope</div>
+                </article>
+                <article className="staff-kpi-card">
+                  <div className="staff-kpi-label">Selected range</div>
+                  <div className="staff-kpi-text">{fromLabel} to {toLabel}</div>
+                  <div className="staff-kpi-note">Filter coverage</div>
+                </article>
+                <article className="staff-kpi-card">
+                  <div className="staff-kpi-label">Load indicator</div>
+                  <div className="staff-kpi-note">Based on current matching volume</div>
+                  <span className={`staff-load-pill ${staffLoadBand}`}>{staffLoadLabel}</span>
+                </article>
+              </div>
+
               <div className="compact-search-panel refined-search-panel">
                 <div className="compact-search-header refined-search-header">
                   <div>
@@ -1108,12 +1125,12 @@ export default function AccountPage({
                     <button className="btn secondary" type="button" onClick={handleStaffSearchResetClick}>Reset</button>
                   </div>
 
-                  <div className="field refined-search-field refined-search-field-date refined-search-field-card">
+                  <div className="field refined-search-field refined-search-field-date refined-search-field-from refined-search-field-card">
                     <label htmlFor="staff-scheduled-from">From</label>
                     <input id="staff-scheduled-from" type="datetime-local" value={staffSearch.scheduledFrom} onChange={(event) => onStaffSearchChange('scheduledFrom', event.target.value)} />
                   </div>
 
-                  <div className="field refined-search-field refined-search-field-date refined-search-field-card">
+                  <div className="field refined-search-field refined-search-field-date refined-search-field-to refined-search-field-card">
                     <label htmlFor="staff-scheduled-to">To</label>
                     <input id="staff-scheduled-to" type="datetime-local" value={staffSearch.scheduledTo} onChange={(event) => onStaffSearchChange('scheduledTo', event.target.value)} />
                   </div>
@@ -1226,5 +1243,11 @@ export default function AccountPage({
     </div>
   );
 }
+
+
+
+
+
+
 
 
