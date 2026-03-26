@@ -158,7 +158,7 @@ export default function ContactPage() {
               </div>
 
               {successNotice ? <div className="inline-notice">{successNotice}</div> : null}
-              <button type="submit" className="btn" style={{ width: '100%', padding: '14px', fontSize: '16px', marginTop: '16px' }}>
+              <button type="submit" className="btn contact-submit-btn">
                 Send Message
               </button>
             </form>
@@ -195,3 +195,4 @@ export default function ContactPage() {
     </div>
   );
 }
+

@@ -139,6 +139,7 @@ export default function App() {
   const [profileNotice, setProfileNotice] = useState('');
 
   const hasSession = useMemo(() => Boolean(sessionId), [sessionId]);
+  const isStaffUser = useMemo(() => String(currentUser?.role || '').toLowerCase() === 'staff', [currentUser]);
   const selectedClinic = useMemo(() => clinics.find((clinic) => clinic.id === clinicId) || null, [clinics, clinicId]);
   const activeDisclaimers = useMemo(
     () =>
@@ -313,6 +314,20 @@ export default function App() {
 
     refreshManagerStaffDirectory(managerStaffFilters);
   }, [accountSection, currentPage, currentUser, managerStaffFilters]);
+
+  useEffect(() => {
+    if (!isStaffUser) {
+      return;
+    }
+
+    if (currentPage !== 'account') {
+      setCurrentPage('account');
+    }
+
+    if (accountSection !== 'dashboard' && accountSection !== 'profile') {
+      setAccountSection('dashboard');
+    }
+  }, [accountSection, currentPage, isStaffUser]);
 
   async function completeAuth(authPromise) {
     setAuthLoading(true);
@@ -654,15 +669,21 @@ export default function App() {
   }
 
   return (
-    <div className="app">
+    <div className={`app ${isStaffUser ? 'staff-focus-mode' : ''}`}>
       <Navigation
         currentPage={currentPage}
         setCurrentPage={setCurrentPage}
         onHomeClick={() => {
+          if (isStaffUser) {
+            setCurrentPage('account');
+            setAccountSection('dashboard');
+            return;
+          }
           setCurrentPage('home');
           handleReset();
         }}
         currentUser={currentUser}
+        clinics={clinics}
         accountSection={accountSection}
         onNavigateToAccountSection={handleNavigateToAccountSection}
         onLogout={handleLogout}
@@ -688,6 +709,7 @@ export default function App() {
           bookingLoading={bookingLoading}
           bookingNotice={bookingNotice}
           staffSearch={staffSearch}
+          appliedStaffSearch={appliedStaffSearch}
           onStaffSearchChange={handleStaffSearchChange}
           onStaffSearchSubmit={handleStaffSearchSubmit}
           onStaffSearchReset={handleStaffSearchReset}
@@ -718,4 +740,6 @@ export default function App() {
     </div>
   );
 }
+
+
 
