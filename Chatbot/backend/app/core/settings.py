@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     # Local model provider abstraction
     rag_model_provider: str = Field(default="ollama", alias="RAG_MODEL_PROVIDER")
     rag_active_model: str = Field(default="gemma3_4b", alias="RAG_ACTIVE_MODEL")
+    rag_model_specs: dict[str, dict[str, str]] = Field(default_factory=dict, alias="RAG_MODEL_SPECS")
     rag_ollama_base_url: str = Field(default="http://127.0.0.1:11434", alias="RAG_OLLAMA_BASE_URL")
     rag_openai_base_url: str = Field(default="http://127.0.0.1:8005/v1", alias="RAG_OPENAI_BASE_URL")
     rag_openai_api_key: str = Field(default="local-dev-key", alias="RAG_OPENAI_API_KEY")
