@@ -12,20 +12,46 @@ from API.rag.db import execute, fetch_all, rag_db_enabled
 from Chatbot.backend.app.core.settings import settings
 
 
-_MODEL_SPECS = {
-    "gemma3_4b": ModelSpec(
-        key="gemma3_4b",
-        provider="ollama",
-        model_name="gemma3:4b",
-        prompt_variant="gemma",
-    ),
-    "qwen2_5_7b_instruct": ModelSpec(
-        key="qwen2_5_7b_instruct",
-        provider="ollama",
-        model_name="qwen2.5:7b-instruct",
-        prompt_variant="qwen",
-    ),
-}
+def _safe_model_key(name: str) -> str:
+    key = name.strip().lower()
+    return key.replace(":", "_").replace(".", "_").replace("-", "_")
+
+
+def _load_model_specs() -> dict[str, ModelSpec]:
+    raw_specs = settings.rag_model_specs or {}
+    specs: dict[str, ModelSpec] = {}
+
+    for key, config in raw_specs.items():
+        if not isinstance(config, dict):
+            continue
+        provider = str(config.get("provider", "")).strip().lower()
+        model_name = str(config.get("model_name", "")).strip()
+        prompt_variant = str(config.get("prompt_variant", "default")).strip().lower() or "default"
+        spec_key = str(config.get("key", key)).strip().lower() or _safe_model_key(model_name or key)
+        if provider and model_name:
+            specs[spec_key] = ModelSpec(
+                key=spec_key,
+                provider=provider,
+                model_name=model_name,
+                prompt_variant=prompt_variant,
+            )
+
+    if specs:
+        return specs
+
+    fallback_model = settings.rag_active_model.strip() or "gemma3:4b"
+    fallback_key = _safe_model_key(fallback_model)
+    return {
+        fallback_key: ModelSpec(
+            key=fallback_key,
+            provider=settings.rag_model_provider.strip().lower() or "ollama",
+            model_name=fallback_model,
+            prompt_variant="default",
+        )
+    }
+
+
+_MODEL_SPECS = _load_model_specs()
 
 
 def _provider_for(provider_key: str) -> LocalModelAdapter:
@@ -53,7 +79,12 @@ def list_models() -> list[dict[str, Any]]:
 
 def active_model() -> ModelSpec:
     desired = settings.rag_active_model.strip().lower()
-    return _MODEL_SPECS.get(desired, _MODEL_SPECS["gemma3_4b"])
+    if desired in _MODEL_SPECS:
+        return _MODEL_SPECS[desired]
+    for spec in _MODEL_SPECS.values():
+        if spec.model_name.strip().lower() == desired:
+            return spec
+    return next(iter(_MODEL_SPECS.values()))
 
 
 def active_adapter() -> LocalModelAdapter:
