@@ -14,9 +14,9 @@ NUM_DOCTORS = 2
 DAYS_TO_SIMULATE = 365  # 1 year of data
 START_DATE = datetime(2023, 1, 1, 8, 0, 0)
 
-def get_duration(acuity):
+def get_duration(priority: int) -> int:
     """Adds realistic variation to doctor service times."""
-    base = {1: 60, 2: 40, 3: 20, 4: 10, 5: 5}[acuity]
+    base = {1: 60, 2: 40, 3: 20, 4: 10, 5: 5}[priority]
     noise = np.random.normal(0, 3) # +/- 3 minutes of random variation
     return max(1, int(base + noise))
 
@@ -50,7 +50,7 @@ def generate_data():
                 for _ in range(num_arrivals):
                     minute = np.random.randint(0, 60)
                     arrival_time = current_date.replace(hour=hour, minute=minute)
-                    acuity = np.random.choice([1, 2, 3, 4, 5], p=[0.05, 0.10, 0.50, 0.25, 0.10])
+                    priority = np.random.choice([1, 2, 3, 4, 5], p=[0.05, 0.10, 0.50, 0.25, 0.10])
                     
                     all_visits.append({
                         "clinic_id": clinic,
@@ -58,8 +58,8 @@ def generate_data():
                         "day_of_week": current_date.weekday(), # 0=Mon, 6=Sun
                         "is_weekend": int(is_weekend),
                         "hour_of_day": hour,
-                        "acuity": acuity,
-                        "est_duration": get_duration(acuity)
+                        "priority": priority,
+                        "est_duration": get_duration(priority)
                     })
 
     # Sort all arrivals chronologically
@@ -161,7 +161,7 @@ def generate_data():
         "clinic_id", "arrival_time", 
         "day_of_week", "day_sin", "day_cos", "is_weekend", 
         "hour_of_day", "hour_sin", "hour_cos", 
-        "acuity", "est_duration", 
+        "priority", "est_duration", 
         "queue_length_at_arrival", "arrivals_last_1_hour", "avg_wait_last_1_hour",
         "actual_wait_minutes", "arrivals_next_2_hours", "is_surge_imminent"
     ]

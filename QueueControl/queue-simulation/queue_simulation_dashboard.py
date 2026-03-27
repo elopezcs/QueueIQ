@@ -61,8 +61,8 @@ except FileNotFoundError:
 # -----------------------------
 # BACKEND HELPERS
 # -----------------------------
-def get_duration(acuity: int) -> int:
-    return {1: 60, 2: 40, 3: 20, 4: 10, 5: 5}[acuity]
+def get_duration(priority: int) -> int:
+    return {1: 60, 2: 40, 3: 20, 4: 10, 5: 5}[priority]
 
 def init_db():
     with engine.begin() as conn:
@@ -72,30 +72,30 @@ def init_db():
                 clinic_id VARCHAR(100) NOT NULL,
                 patient_id INTEGER NOT NULL,
                 arrival_time TIMESTAMP NOT NULL,
-                acuity INTEGER NOT NULL,
+                priority INTEGER NOT NULL,
                 est_duration INTEGER NOT NULL
             );
         """))
 
 def fetch_queue() -> pd.DataFrame:
     query = text("""
-        SELECT record_id, clinic_id, patient_id, arrival_time, acuity, est_duration
+        SELECT record_id, clinic_id, patient_id, arrival_time, priority, est_duration
         FROM clinic_queue
-        ORDER BY clinic_id, acuity ASC, arrival_time ASC
+        ORDER BY clinic_id, priority ASC, arrival_time ASC
     """)
     with engine.connect() as conn:
         return pd.read_sql_query(query, conn)
 
-def insert_patient(clinic_id: str, patient_id: int, arrival_time: datetime, acuity: int, est_duration: int):
+def insert_patient(clinic_id: str, patient_id: int, arrival_time: datetime, priority: int, est_duration: int):
     with engine.begin() as conn:
         conn.execute(text("""
-            INSERT INTO clinic_queue (clinic_id, patient_id, arrival_time, acuity, est_duration)
-            VALUES (:clinic_id, :patient_id, :arrival_time, :acuity, :est_duration)
+            INSERT INTO clinic_queue (clinic_id, patient_id, arrival_time, priority, est_duration)
+            VALUES (:clinic_id, :patient_id, :arrival_time, :priority, :est_duration)
         """), {
             "clinic_id": clinic_id,
             "patient_id": patient_id,
             "arrival_time": arrival_time,
-            "acuity": acuity,
+            "priority": priority,
             "est_duration": est_duration,
         })
 
@@ -151,7 +151,7 @@ def run_simulation():
                     while len(doctors_free_at[cid]) > current_doctors:
                         doctors_free_at[cid].pop()
 
-                    waiting_patients = df[df["clinic_id"] == cid].sort_values(by=["acuity", "arrival_time"])
+                    waiting_patients = df[df["clinic_id"] == cid].sort_values(by=["priority", "arrival_time"])
 
                     for i in range(current_doctors):
                         if now >= doctors_free_at[cid][i] and not waiting_patients.empty:
@@ -187,8 +187,8 @@ def run_simulation():
 
                 if random.random() < current_prob:
                     new_id = random.randint(1000, 9999)
-                    acuity = random.choices([1, 2, 3, 4, 5], weights=[5, 10, 50, 25, 10])[0]
-                    insert_patient(cid, new_id, now, acuity, get_duration(acuity))
+                    priority = random.choices([1, 2, 3, 4, 5], weights=[5, 10, 50, 25, 10])[0]
+                    insert_patient(cid, new_id, now, priority, get_duration(priority))
                     print(f"🔔 Walk-in [{now.strftime('%H:%M:%S')}] {cid}: Patient {new_id} added")
 
             # Pause based on the dynamic slider speed
@@ -252,14 +252,14 @@ if not full_df.empty and "clinic_id" in full_df.columns:
     df_waiting = full_df[full_df["clinic_id"] == selected_clinic].copy()
     total_waiting_system = len(full_df)
 else:
-    df_waiting = pd.DataFrame(columns=["record_id", "clinic_id", "patient_id", "arrival_time", "acuity", "est_duration"])
+    df_waiting = pd.DataFrame(columns=["record_id", "clinic_id", "patient_id", "arrival_time", "priority", "est_duration"])
     total_waiting_system = 0
 
 col1, col2, col3, col4 = st.columns(4)
 col1.metric(f"Queue at {selected_clinic}", len(df_waiting))
 
 if not df_waiting.empty:
-    df_waiting = df_waiting.sort_values(by=["acuity", "arrival_time"])
+    df_waiting = df_waiting.sort_values(by=["priority", "arrival_time"])
     col2.metric("Next Up", int(df_waiting.iloc[0]["patient_id"]))
 else:
     col2.metric("Next Up", "None")
@@ -278,7 +278,7 @@ with c_table:
         display_df = display_df.drop(columns=["record_id", "clinic_id"], errors="ignore")
         
         st.dataframe(
-            display_df.style.map(lambda v: "background-color: #ffcccc" if v == 1 else "", subset=["acuity"]),
+            display_df.style.map(lambda v: "background-color: #ffcccc" if v == 1 else "", subset=["priority"]),
             width="stretch", hide_index=True
         )
     else:
@@ -290,11 +290,11 @@ with c_actions:
 
     if st.button("➕ Add Standard Patient", key="btn_std"):
         new_id = random.randint(1000, 9999)
-        acuity = random.choice([3, 4, 5])
-        insert_patient(selected_clinic, new_id, datetime.now(), acuity, get_duration(acuity))
+        priority = random.choice([3, 4, 5])
+        insert_patient(selected_clinic, new_id, datetime.now(), priority, get_duration(priority))
         st.toast(f"✅ Patient {new_id} added!")
 
-    if st.button("🚨 Add Critical (Acuity 1)", key="btn_crit"):
+    if st.button("🚨 Add Critical (priority 1)", key="btn_crit"):
         new_id = random.randint(1000, 9999)
         insert_patient(selected_clinic, new_id, datetime.now(), 1, get_duration(1))
         st.toast(f"🚨 Critical Patient {new_id} added!")
@@ -338,8 +338,8 @@ except FileNotFoundError:
 # -----------------------------
 # BACKEND HELPERS
 # -----------------------------
-def get_duration(acuity: int) -> int:
-    return {1: 60, 2: 40, 3: 20, 4: 10, 5: 5}[acuity]
+def get_duration(priority: int) -> int:
+    return {1: 60, 2: 40, 3: 20, 4: 10, 5: 5}[priority]
 
 def init_db():
     with engine.begin() as conn:
@@ -349,30 +349,30 @@ def init_db():
                 clinic_id VARCHAR(100) NOT NULL,
                 patient_id INTEGER NOT NULL,
                 arrival_time TIMESTAMP NOT NULL,
-                acuity INTEGER NOT NULL,
+                priority INTEGER NOT NULL,
                 est_duration INTEGER NOT NULL
             );
         """))
 
 def fetch_queue() -> pd.DataFrame:
     query = text("""
-        SELECT record_id, clinic_id, patient_id, arrival_time, acuity, est_duration
+        SELECT record_id, clinic_id, patient_id, arrival_time, priority, est_duration
         FROM clinic_queue
-        ORDER BY clinic_id, acuity ASC, arrival_time ASC
+        ORDER BY clinic_id, priority ASC, arrival_time ASC
     """)
     with engine.connect() as conn:
         return pd.read_sql_query(query, conn)
 
-def insert_patient(clinic_id: str, patient_id: int, arrival_time: datetime, acuity: int, est_duration: int):
+def insert_patient(clinic_id: str, patient_id: int, arrival_time: datetime, priority: int, est_duration: int):
     with engine.begin() as conn:
         conn.execute(text("""
-            INSERT INTO clinic_queue (clinic_id, patient_id, arrival_time, acuity, est_duration)
-            VALUES (:clinic_id, :patient_id, :arrival_time, :acuity, :est_duration)
+            INSERT INTO clinic_queue (clinic_id, patient_id, arrival_time, priority, est_duration)
+            VALUES (:clinic_id, :patient_id, :arrival_time, :priority, :est_duration)
         """), {
             "clinic_id": clinic_id,
             "patient_id": patient_id,
             "arrival_time": arrival_time,
-            "acuity": acuity,
+            "priority": priority,
             "est_duration": est_duration,
         })
 
@@ -428,7 +428,7 @@ def run_simulation():
                     while len(doctors_free_at[cid]) > current_doctors:
                         doctors_free_at[cid].pop()
 
-                    waiting_patients = df[df["clinic_id"] == cid].sort_values(by=["acuity", "arrival_time"])
+                    waiting_patients = df[df["clinic_id"] == cid].sort_values(by=["priority", "arrival_time"])
 
                     for i in range(current_doctors):
                         if now >= doctors_free_at[cid][i] and not waiting_patients.empty:
@@ -464,8 +464,8 @@ def run_simulation():
 
                 if random.random() < current_prob:
                     new_id = random.randint(1000, 9999)
-                    acuity = random.choices([1, 2, 3, 4, 5], weights=[5, 10, 50, 25, 10])[0]
-                    insert_patient(cid, new_id, now, acuity, get_duration(acuity))
+                    priority = random.choices([1, 2, 3, 4, 5], weights=[5, 10, 50, 25, 10])[0]
+                    insert_patient(cid, new_id, now, priority, get_duration(priority))
                     print(f"🔔 Walk-in [{now.strftime('%H:%M:%S')}] {cid}: Patient {new_id} added")
 
             # Pause based on the dynamic slider speed
@@ -531,14 +531,14 @@ if not full_df.empty and "clinic_id" in full_df.columns:
     df_waiting = full_df[full_df["clinic_id"] == selected_clinic].copy()
     total_waiting_system = len(full_df)
 else:
-    df_waiting = pd.DataFrame(columns=["record_id", "clinic_id", "patient_id", "arrival_time", "acuity", "est_duration"])
+    df_waiting = pd.DataFrame(columns=["record_id", "clinic_id", "patient_id", "arrival_time", "priority", "est_duration"])
     total_waiting_system = 0
 
 col1, col2, col3, col4 = st.columns(4)
 col1.metric(f"Queue at {selected_clinic}", len(df_waiting))
 
 if not df_waiting.empty:
-    df_waiting = df_waiting.sort_values(by=["acuity", "arrival_time"])
+    df_waiting = df_waiting.sort_values(by=["priority", "arrival_time"])
     col2.metric("Next Up", int(df_waiting.iloc[0]["patient_id"]))
 else:
     col2.metric("Next Up", "None")
@@ -557,7 +557,7 @@ with c_table:
         display_df = display_df.drop(columns=["record_id", "clinic_id"], errors="ignore")
         
         st.dataframe(
-            display_df.style.map(lambda v: "background-color: #ffcccc" if v == 1 else "", subset=["acuity"]),
+            display_df.style.map(lambda v: "background-color: #ffcccc" if v == 1 else "", subset=["priority"]),
             width="stretch", hide_index=True
         )
     else:
@@ -569,11 +569,11 @@ with c_actions:
 
     if st.button("➕ Add Standard Patient", key="btn_std"):
         new_id = random.randint(1000, 9999)
-        acuity = random.choice([3, 4, 5])
-        insert_patient(selected_clinic, new_id, datetime.now(), acuity, get_duration(acuity))
+        priority = random.choice([3, 4, 5])
+        insert_patient(selected_clinic, new_id, datetime.now(), priority, get_duration(priority))
         st.toast(f"✅ Patient {new_id} added!")
 
-    if st.button("🚨 Add Critical (Acuity 1)", key="btn_crit"):
+    if st.button("🚨 Add Critical (priority 1)", key="btn_crit"):
         new_id = random.randint(1000, 9999)
         insert_patient(selected_clinic, new_id, datetime.now(), 1, get_duration(1))
         st.toast(f"🚨 Critical Patient {new_id} added!")
