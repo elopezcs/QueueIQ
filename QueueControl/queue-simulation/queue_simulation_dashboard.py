@@ -41,7 +41,7 @@ _ENV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", 
 load_dotenv(dotenv_path=_ENV_PATH, override=True)
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
-    st.error("**DATABASE_URL is not set.** Add it to your `.env` file, e.g.:\n\n`DATABASE_URL=postgresql://user:pass@localhost:5432/queueiq`")
+    st.error("**DATABASE_URL is not set.** Add it to your `.env` file and restart the app.")
     st.stop()
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 

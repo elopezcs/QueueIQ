@@ -18,4 +18,4 @@ COPY . .
 # Copy the trained model into the image as requested
 COPY QueueControl/models/queueiq_xgb_model.joblib /app/QueueControl/models/queueiq_xgb_model.joblib
 
-CMD ["python", "QueueControl/queue-simulation/backend-queue-simulation.py"]
+CMD ["python", "QueueControl/queue-simulation/queue_simulation_dashboard.py"]

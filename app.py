@@ -380,6 +380,10 @@ def render_workspace_page() -> None:
 
 
 def main() -> int:
+
+    DATABASE_URL = os.getenv("DATABASE_URL")
+    print(f"Connecting to database at: {DATABASE_URL}")
+    
     if _is_running_under_streamlit():
         render_workspace_page()
         return 0

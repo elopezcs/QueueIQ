@@ -15,5 +15,5 @@ COPY . .
 
 EXPOSE 8501
 
-# Command to run your application (adjust 'main.py' to your entry point)
-CMD ["streamlit", "run", "queue-simulation/frontend-dashboard.py"]
+# Run app.py when the container launches
+CMD ["python", "./app.py"]
