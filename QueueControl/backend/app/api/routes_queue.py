@@ -62,16 +62,16 @@ def _validate_clinic_id(clinic_id: str) -> JSONResponse | str:
     return cleaned
 
 
-def _validate_acuity(body: dict[str, Any]) -> JSONResponse | int:
-    if "acuity" not in body:
+def _validate_priority(body: dict[str, Any]) -> JSONResponse | int:
+    if "priority" not in body:
         return 3
 
-    value = body["acuity"]
+    value = body["priority"]
     if isinstance(value, bool) or not isinstance(value, int):
-        return _error(422, "acuity must be an integer between 1 and 5", "INVALID_FORMAT", "acuity")
+        return _error(422, "priority must be an integer between 1 and 5", "INVALID_FORMAT", "priority")
 
     if value < 1 or value > 5:
-        return _error(422, "acuity must be between 1 and 5", "INVALID_FORMAT", "acuity")
+        return _error(422, "priority must be between 1 and 5", "INVALID_FORMAT", "priority")
 
     return value
 
@@ -122,7 +122,7 @@ def get_queues() -> list[ClinicQueueSummaryOut] | JSONResponse:
     "/clinics/{clinic_id}/queue",
     response_model=ClinicQueueDetailOut,
     summary="Get clinic queue details",
-    description="Returns the current waiting queue for a single clinic, ordered by acuity and arrival time.",
+    description="Returns the current waiting queue for a single clinic, ordered by priority and arrival time.",
     responses=NOT_FOUND_AND_SERVER_ERROR_RESPONSES,
 )
 def get_clinic_queue(clinic_id: str) -> ClinicQueueDetailOut | JSONResponse:
@@ -143,7 +143,7 @@ def get_clinic_queue(clinic_id: str) -> ClinicQueueDetailOut | JSONResponse:
     response_model=PatientCreateOut,
     status_code=201,
     summary="Add patient to clinic queue",
-    description="Creates a new waiting patient record for the selected clinic using the provided acuity value.",
+    description="Creates a new waiting patient record for the selected clinic using the provided priority value.",
     responses=ERROR_RESPONSES,
 )
 async def add_patient(clinic_id: str, request: Request) -> PatientCreateOut | JSONResponse:
@@ -155,16 +155,16 @@ async def add_patient(clinic_id: str, request: Request) -> PatientCreateOut | JS
     if body is None:
         return _error(400, "Request body must be a JSON object", "INVALID_JSON")
 
-    acuity = _validate_acuity(body)
-    if isinstance(acuity, JSONResponse):
-        return acuity
+    priority = _validate_priority(body)
+    if isinstance(priority, JSONResponse):
+        return priority
 
     try:
-        return create_patient(clinic_id=validated_clinic_id, acuity=acuity)
+        return create_patient(clinic_id=validated_clinic_id, priority=priority)
     except ValueError as exc:
         detail = str(exc)
-        if "acuity" in detail.lower():
-            return _error(422, detail, "INVALID_FORMAT", "acuity")
+        if "priority" in detail.lower():
+            return _error(422, detail, "INVALID_FORMAT", "priority")
         return _error(404, detail, "NOT_FOUND", "clinic_id")
     except Exception:
         return _error(500, "Unable to add patient to clinic queue", "INTERNAL_SERVER_ERROR")

@@ -20,7 +20,7 @@ QUEUE_COLUMNS = [
     "clinic_id",
     "id",
     "arrival_time",
-    "acuity",
+    "priority",
     "est_duration",
     "seen_doctor",
     "actual_wait_minutes",
@@ -33,8 +33,8 @@ def _validate_clinic_id(clinic_id: str) -> None:
         raise ValueError("Clinic not found")
 
 
-def _service_duration_for_acuity(acuity: int) -> int:
-    return {1: 60, 2: 40, 3: 20, 4: 10, 5: 5}[acuity]
+def _service_duration_for_priority(priority: int) -> int:
+    return {1: 60, 2: 40, 3: 20, 4: 10, 5: 5}[priority]
 
 
 def _load_queue_df() -> pd.DataFrame:
@@ -53,7 +53,7 @@ def _load_queue_df() -> pd.DataFrame:
     df = df[QUEUE_COLUMNS].copy()
     if not df.empty:
         df["id"] = pd.to_numeric(df["id"], errors="coerce").fillna(0).astype(int)
-        df["acuity"] = pd.to_numeric(df["acuity"], errors="coerce").fillna(5).astype(int)
+        df["priority"] = pd.to_numeric(df["priority"], errors="coerce").fillna(5).astype(int)
         df["est_duration"] = pd.to_numeric(df["est_duration"], errors="coerce").fillna(0).astype(int)
         df["actual_wait_minutes"] = pd.to_numeric(df["actual_wait_minutes"], errors="coerce")
         df["seen_doctor"] = (
@@ -82,7 +82,7 @@ def _waiting_df(df: pd.DataFrame, clinic_id: str) -> pd.DataFrame:
     if clinic_df.empty:
         return clinic_df
     waiting_df = clinic_df[~clinic_df["seen_doctor"]].copy()
-    return waiting_df.sort_values(by=["acuity", "arrival_time", "id"])
+    return waiting_df.sort_values(by=["priority", "arrival_time", "id"])
 
 
 def list_clinics() -> list[ClinicSummaryOut]:
@@ -112,7 +112,7 @@ def list_queue_summaries() -> list[ClinicQueueSummaryOut]:
         clinic_df = _clinic_df(df, clinic_id)
         waiting_df = _waiting_df(df, clinic_id)
         next_patient_id = int(waiting_df.iloc[0]["id"]) if not waiting_df.empty else None
-        next_patient_acuity = int(waiting_df.iloc[0]["acuity"]) if not waiting_df.empty else None
+        next_patient_priority = int(waiting_df.iloc[0]["priority"]) if not waiting_df.empty else None
 
         summaries.append(
             ClinicQueueSummaryOut(
@@ -120,7 +120,7 @@ def list_queue_summaries() -> list[ClinicQueueSummaryOut]:
                 waiting_patients=len(waiting_df),
                 total_patients=len(clinic_df),
                 next_patient_id=next_patient_id,
-                next_patient_acuity=next_patient_acuity,
+                next_patient_priority=next_patient_priority,
             )
         )
 
@@ -148,7 +148,7 @@ def get_clinic_queue_detail(clinic_id: str) -> ClinicQueueDetailOut:
             clinic_id=row["clinic_id"],
             id=int(row["id"]),
             arrival_time=str(row["arrival_time"]),
-            acuity=int(row["acuity"]),
+            priority=int(row["priority"]),
             est_duration=int(row["est_duration"]),
             seen_doctor=bool(row["seen_doctor"]),
             actual_wait_minutes=float(row["actual_wait_minutes"]) if pd.notna(row["actual_wait_minutes"]) else None,
@@ -165,10 +165,10 @@ def get_clinic_queue_detail(clinic_id: str) -> ClinicQueueDetailOut:
     )
 
 
-def create_patient(clinic_id: str, acuity: int) -> PatientCreateOut:
+def create_patient(clinic_id: str, priority: int) -> PatientCreateOut:
     _validate_clinic_id(clinic_id)
-    if acuity not in {1, 2, 3, 4, 5}:
-        raise ValueError("acuity must be between 1 and 5")
+    if priority not in {1, 2, 3, 4, 5}:
+        raise ValueError("priority must be between 1 and 5")
 
     df = _load_queue_df()
     existing_ids = set(df["id"].tolist()) if not df.empty else set()
@@ -181,8 +181,8 @@ def create_patient(clinic_id: str, acuity: int) -> PatientCreateOut:
         "clinic_id": clinic_id,
         "id": patient_id,
         "arrival_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "acuity": acuity,
-        "est_duration": _service_duration_for_acuity(acuity),
+        "priority": priority,
+        "est_duration": _service_duration_for_priority(priority),
         "seen_doctor": False,
         "actual_wait_minutes": None,
     }
