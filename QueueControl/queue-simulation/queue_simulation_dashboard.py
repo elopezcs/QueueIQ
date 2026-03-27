@@ -37,13 +37,12 @@ doctors_free_at = get_doctors_state()
 # -----------------------------
 # DATABASE & ENVIRONMENT
 # -----------------------------
-# _ENV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
-# load_dotenv(dotenv_path=_ENV_PATH, override=True)
-# DATABASE_URL = os.getenv("DATABASE_URL")
-# if not DATABASE_URL:
-#     st.error("**DATABASE_URL is not set.** Add it to your `.env` file, e.g.:\n\n`DATABASE_URL=postgresql://user:pass@localhost:5432/queueiq`")
-#     st.stop()
-DATABASE_URL = "postgresql://postgres:ConestogaCollege%402026@localhost:5432/queueiq"
+_ENV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+load_dotenv(dotenv_path=_ENV_PATH, override=True)
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    st.error("**DATABASE_URL is not set.** Add it to your `.env` file, e.g.:\n\n`DATABASE_URL=postgresql://user:pass@localhost:5432/queueiq`")
+    st.stop()
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 # -----------------------------
