@@ -292,3 +292,95 @@ macOS or Linux:
 - `Chatbot/frontend/node_modules` must exist for the launcher to start the frontend.
 - `QueueControl/models/queueiq_xgb_model.joblib` must exist for the queue simulator to start.
 
+## RAG Module (API/rag)
+
+QueueIQ now includes a dedicated RAG module at `API/rag` for patient+clinic retrieval with traceability.
+
+Architecture highlights:
+- `API/rag/routes.py`: `/rag/*` endpoints
+- `API/rag/services/rag_service.py`: session lifecycle, seed logic, trace/session reads
+- `API/rag/orchestrators/rag_orchestrator.py`: query routing + guardrails + model invocation
+- `API/rag/retrievers/*`: patient and clinic retrievers
+- `API/rag/model_adapters/*`: provider abstraction (Ollama + OpenAI-compatible)
+- `API/rag/db.py`: PostgreSQL schema init and data access
+
+### Environment Variables
+
+Set these in `.env` (repo root):
+
+```env
+DATABASE_URL=postgresql://user:password@host:5432/dbname
+# Optional override:
+# RAG_DATABASE_URL=postgresql://user:password@host:5432/dbname
+
+RAG_ENABLE_AUTO_INIT=true
+RAG_VECTOR_DIMENSIONS=768
+
+RAG_MODEL_PROVIDER=ollama
+RAG_ACTIVE_MODEL=gemma3_4b
+RAG_OLLAMA_BASE_URL=http://127.0.0.1:11434
+RAG_ENABLE_EMBEDDINGS=true
+RAG_EMBEDDING_MODEL=nomic-embed-text
+
+# Alternative provider mode:
+# RAG_MODEL_PROVIDER=openai_compatible
+# RAG_OPENAI_BASE_URL=http://127.0.0.1:8005/v1
+# RAG_OPENAI_API_KEY=local-dev-key
+```
+
+Supported active models:
+- `gemma3_4b`
+- `qwen2_5_7b_instruct`
+
+### DB Setup and Migration
+
+RAG schema is auto-initialized when API starts (if `DATABASE_URL` is set), creating `rag.*` tables:
+- Patient context: `patients`, `encounters`, `medications`, `allergies`, `problem_list`, `clinical_notes`, `lab_summaries`, `patient_chat_sessions`, `patient_chat_messages`
+- Clinic KB: `clinics`, `clinic_documents`, `clinic_document_chunks`, `clinic_faqs`, `clinic_rules`, `clinic_hours_services`
+- Traceability: `retrieval_traces`, `llm_runs`, `prompt_versions`, `model_configs`
+
+`pgvector` is attempted via `CREATE EXTENSION vector`. If unavailable, retrieval falls back to lexical filtering (no vector index dependency).
+
+### Seed Data
+
+Use authenticated manager/staff token and call:
+
+```bash
+POST /rag/seed
+```
+
+Seed data is repeatable and synthetic:
+- 3 patients with meds/allergies/problem list/encounter notes/lab summaries
+- 3 clinics with FAQs/rules/hours/services/SOP-like docs
+
+### Endpoints
+
+Required:
+- `GET /rag/health`
+- `GET /rag/models`
+- `POST /rag/seed`
+- `POST /rag/chat/start`
+- `POST /rag/chat/turn`
+- `POST /rag/chat/end`
+
+Debug:
+- `POST /rag/retrieve/debug`
+- `GET /rag/session/{session_id}`
+- `GET /rag/trace/{trace_id}`
+
+`POST /rag/retrieve/debug` now performs retrieval-only debugging and does **not** invoke generation.
+
+### Run and Test
+
+Run API:
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --app-dir Chatbot\backend
+```
+
+Run tests (including new RAG tests):
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
