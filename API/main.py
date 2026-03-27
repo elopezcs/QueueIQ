@@ -6,6 +6,9 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+
+
+
 def _ensure_legacy_app_alias() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     repo_root_str = str(repo_root)
@@ -29,10 +32,10 @@ logger = logging.getLogger("queueiq.api")
 
 def create_app() -> FastAPI:
     from API.router_registry import register_routers
+    from API.rag.db import init_rag_db, rag_db_enabled
     from Chatbot.backend.app.core.logging import configure_logging
     from Chatbot.backend.app.core.settings import settings
     from Chatbot.backend.app.storage.db import init_db
-
     configure_logging()
     logger.info("Creating QueueIQ FastAPI application")
 
@@ -51,6 +54,8 @@ def create_app() -> FastAPI:
 
     init_db()
     logger.info("Primary application database initialized")
+    if settings.rag_enable_auto_init and rag_db_enabled():
+        init_rag_db()
     register_routers(app)
     logger.info("API routers registered")
     return app
