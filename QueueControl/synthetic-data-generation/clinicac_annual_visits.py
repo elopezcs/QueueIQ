@@ -3,16 +3,65 @@ import numpy as np
 from datetime import datetime, timedelta
 import os
 
-# Ensure the directory exists
-DATA_FILE_FOLDER = "data/synthetic_data/"
-os.makedirs(DATA_FILE_FOLDER, exist_ok=True)
+from dotenv import load_dotenv
+from sqlalchemy import create_engine, text
+
+# -----------------------------
+# DATABASE & ENVIRONMENT
+# -----------------------------
+_ENV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+load_dotenv(dotenv_path=_ENV_PATH, override=True)
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    print("❌ DATABASE_URL not found in .env. Please set it before running.")
+    exit(1)
+
+try:
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+    # Test connection
+    with engine.connect() as conn:
+        conn.execute(text("SELECT 1"))
+except Exception as e:
+    print(f"❌ Failed to connect to the database: {e}")
+    exit(1)
 
 # --- CONFIGURATION ---
-OUTPUT_FILE = "clinic_historical_data.csv"
+TABLE_NAME = "clinic_historical_data"
 CLINIC_IDS = ["Downtown-Clinic", "Uptown-Clinic", "Westside-Clinic"]
 NUM_DOCTORS = 2
 DAYS_TO_SIMULATE = 365  # 1 year of data
 START_DATE = datetime(2023, 1, 1, 8, 0, 0)
+
+
+def prepare_destination_table():
+    with engine.begin() as conn:
+        conn.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
+                clinic_id VARCHAR(100) NOT NULL,
+                arrival_time TIMESTAMP NOT NULL,
+                day_of_week INTEGER NOT NULL,
+                day_sin DOUBLE PRECISION NOT NULL,
+                day_cos DOUBLE PRECISION NOT NULL,
+                is_weekend INTEGER NOT NULL,
+                hour_of_day INTEGER NOT NULL,
+                hour_sin DOUBLE PRECISION NOT NULL,
+                hour_cos DOUBLE PRECISION NOT NULL,
+                priority INTEGER NOT NULL,
+                est_duration INTEGER NOT NULL,
+                queue_length_at_arrival INTEGER NOT NULL,
+                arrivals_last_1_hour DOUBLE PRECISION NOT NULL,
+                avg_wait_last_1_hour DOUBLE PRECISION NOT NULL,
+                actual_wait_minutes DOUBLE PRECISION NOT NULL,
+                arrivals_next_2_hours DOUBLE PRECISION NOT NULL,
+                is_surge_imminent INTEGER NOT NULL
+            );
+        """))
+        conn.execute(text(f"DELETE FROM {TABLE_NAME};"))
+
+
+def persist_generated_data(df_final: pd.DataFrame):
+    prepare_destination_table()
+    df_final.to_sql(TABLE_NAME, engine, if_exists="append", index=False, method="multi", chunksize=1000)
 
 def get_duration(priority: int) -> int:
     """Adds realistic variation to doctor service times."""
@@ -156,7 +205,7 @@ def generate_data():
     # Define a "Rush Hour Surge" as > 15 arrivals in the next 2 hours
     df_final['is_surge_imminent'] = (df_final['arrivals_next_2_hours'] > 15).astype(int)
 
-    # 5. EXPORT
+    # 5. SAVE TO DATABASE
     cols_order = [
         "clinic_id", "arrival_time", 
         "day_of_week", "day_sin", "day_cos", "is_weekend", 
@@ -166,10 +215,9 @@ def generate_data():
         "actual_wait_minutes", "arrivals_next_2_hours", "is_surge_imminent"
     ]
     df_final = df_final[cols_order]
-    
-    OUTPUT_FILE_PATH = os.path.join(DATA_FILE_FOLDER, OUTPUT_FILE)
-    df_final.to_csv(OUTPUT_FILE_PATH, index=False)
-    print(f"✅ Success! Saved {len(df_final)} rows to {OUTPUT_FILE_PATH}")
+
+    persist_generated_data(df_final)
+    print(f"✅ Success! Saved {len(df_final)} rows to database table '{TABLE_NAME}'")
     
     print("\nSample Data (Features & Targets):")
     # Displaying just a few key columns to verify the logic
