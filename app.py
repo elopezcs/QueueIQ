@@ -144,8 +144,8 @@ def _ensure_launcher_prereqs() -> None:
     if not (ROOT_DIR / "Chatbot" / "frontend" / "node_modules").exists():
         missing_paths.append("Chatbot/frontend/node_modules (run `npm install` in Chatbot/frontend)")
 
-    if not (ROOT_DIR / "QueueControl" / "models" / "queueiq_xgb_model.joblib").exists():
-        missing_paths.append("QueueControl/models/queueiq_xgb_model.joblib")
+    if not (ROOT_DIR / "QueueControl" / "models" / "rush_hour_predictor_model.joblib").exists():
+        missing_paths.append("QueueControl/models/rush_hour_predictor_model.joblib")
 
     if missing_paths:
         joined = "\n- ".join(missing_paths)
@@ -380,6 +380,10 @@ def render_workspace_page() -> None:
 
 
 def main() -> int:
+
+    DATABASE_URL = os.getenv("DATABASE_URL")
+    print(f"Connecting to database at: {DATABASE_URL}")
+    
     if _is_running_under_streamlit():
         render_workspace_page()
         return 0
