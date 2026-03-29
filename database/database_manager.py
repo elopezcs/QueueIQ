@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import URL
 from dotenv import load_dotenv
 
 TABLE_NAME = "clinic_historical_data"
@@ -9,12 +10,26 @@ class DatabaseManager:
     def __init__(self: str):
         _ENV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
         load_dotenv(dotenv_path=_ENV_PATH, override=True)
-        DATABASE_URL = os.getenv("DATABASE_URL")
-        if not DATABASE_URL:
-            print(f"**DATABASE_URL is not set.** Expected to load it from {_ENV_PATH}. Add it to your `.env` file and restart the app.")
+        db_user = os.getenv("DB_USER")
+        db_password = os.getenv("DB_PASSWORD")
+        db_host = os.getenv("DB_HOST")
+        db_port = os.getenv("DB_PORT")
+        db_name = os.getenv("DB_NAME")
+
+        if not all([db_user, db_password, db_host, db_port, db_name]):
+            print(f"**Database environment variables are not fully set.** Expected DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, and DB_NAME in {_ENV_PATH}.")
             exit(1)
 
-        self.engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+        database_url = URL.create(
+            drivername="postgresql",
+            username=db_user,
+            password=db_password,
+            host=db_host,
+            port=int(db_port),
+            database=db_name,
+        )
+
+        self.engine = create_engine(database_url, pool_pre_ping=True)
 
     def init_db(self):
         with self.engine.begin() as conn:
