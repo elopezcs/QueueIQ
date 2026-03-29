@@ -5,27 +5,23 @@ from sklearn.metrics import accuracy_score, classification_report, roc_auc_score
 import xgboost as xgb
 import joblib
 import os
+import sys
 
-from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
+from database.database_manager import DatabaseManager
 
 # -----------------------------
 # DATABASE & ENVIRONMENT
 # -----------------------------
-_ENV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
-load_dotenv(dotenv_path=_ENV_PATH, override=True)
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    print("❌ DATABASE_URL not found in .env. Please set it before running.")
-    exit(1)
-    
+
 try:
-    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
-    # Test connection
-    with engine.connect() as conn:
-        conn.execute(text("SELECT 1"))
+    db_manager = DatabaseManager()
+    db_manager.init_db()
 except Exception as e:
-    print(f"❌ Failed to connect to the database: {e}")
+    print(f"**❌ Failed to connect to the database:** {e}")
     exit(1)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -35,19 +31,6 @@ MODEL_PATH = os.path.abspath(
 )
 
 
-def load_training_data() -> pd.DataFrame:
-    query = text(f"SELECT * FROM {TABLE_NAME}")
-    with engine.connect() as conn:
-        df = pd.read_sql_query(query, conn)
-
-    if df.empty:
-        raise ValueError(
-            f"Table '{TABLE_NAME}' is empty. Generate or load synthetic data before training the model."
-        )
-
-    return df
-
-
 def remove_existing_model():
     if os.path.exists(MODEL_PATH):
         os.remove(MODEL_PATH)
@@ -55,7 +38,7 @@ def remove_existing_model():
 
 def train_model():
     print(f"📥 Loading training data from database table '{TABLE_NAME}'...")
-    df = load_training_data()
+    df = db_manager.fetch_training_data(TABLE_NAME)
     
     # 1. Define Features (X) and Target (y)
     # We drop identifiers and future-leaking columns (like arrivals_next_2_hours)

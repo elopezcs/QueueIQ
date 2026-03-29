@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import random
 import threading
@@ -9,9 +10,24 @@ import joblib
 import numpy as np
 import pandas as pd
 import streamlit as st
-from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
 import plotly.graph_objects as go
+
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
+from database.database_manager import DatabaseManager
+
+# -----------------------------
+# DATABASE & ENVIRONMENT
+# -----------------------------
+
+try:
+    db_manager = DatabaseManager()
+    db_manager.init_db()
+except Exception as e:
+    st.error(f"**❌ Failed to connect to the database:** {e}")
+    st.stop()
 
 # -----------------------------
 # PAGE CONFIG
@@ -21,7 +37,7 @@ st.set_page_config(layout="wide", page_title="Multi-Clinic Dashboard")
 # -----------------------------
 # SHARED STATE (UI <-> THREAD)
 # -----------------------------
-CLINIC_IDS = ["Downtown-Clinic", "Uptown-Clinic", "Westside-Clinic"]
+CLINIC_IDS = db_manager.fetch_clinics()['clinic_id'].tolist()  # Fetch clinic IDs from the database
 
 # @st.cache_resource keeps these dictionaries alive across Streamlit reruns
 # and makes them accessible to the background thread.
@@ -35,25 +51,6 @@ def get_doctors_state():
 
 sim_config = get_sim_config()
 doctors_free_at = get_doctors_state()
-
-# -----------------------------
-# DATABASE & ENVIRONMENT
-# -----------------------------
-_ENV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
-load_dotenv(dotenv_path=_ENV_PATH, override=True)
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    st.error("**DATABASE_URL is not set.** Add it to your `.env` file and restart the app.")
-    st.stop()
-
-try:
-    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
-    # Test connection
-    with engine.connect() as conn:
-        conn.execute(text("SELECT 1"))
-except Exception as e:
-    st.error(f"**❌ Failed to connect to the database:** {e}")
-    st.stop()
 
 # -----------------------------
 # MODEL
@@ -91,51 +88,9 @@ def retrain_rush_hour_model():
 def get_duration(priority: int) -> int:
     return {1: 60, 2: 40, 3: 20, 4: 10, 5: 5}[priority]
 
-def init_db():
-    with engine.begin() as conn:
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS clinic_queue (
-                record_id SERIAL PRIMARY KEY,
-                clinic_id VARCHAR(100) NOT NULL,
-                patient_id INTEGER NOT NULL,
-                arrival_time TIMESTAMP NOT NULL,
-                priority INTEGER NOT NULL,
-                est_duration INTEGER NOT NULL
-            );
-        """))
-
-def fetch_queue() -> pd.DataFrame:
-    query = text("""
-        SELECT record_id, clinic_id, patient_id, arrival_time, priority, est_duration
-        FROM clinic_queue
-        ORDER BY clinic_id, priority ASC, arrival_time ASC
-    """)
-    with engine.connect() as conn:
-        return pd.read_sql_query(query, conn)
-
-def insert_patient(clinic_id: str, patient_id: int, arrival_time: datetime, priority: int, est_duration: int):
-    with engine.begin() as conn:
-        conn.execute(text("""
-            INSERT INTO clinic_queue (clinic_id, patient_id, arrival_time, priority, est_duration)
-            VALUES (:clinic_id, :patient_id, :arrival_time, :priority, :est_duration)
-        """), {
-            "clinic_id": clinic_id,
-            "patient_id": patient_id,
-            "arrival_time": arrival_time,
-            "priority": priority,
-            "est_duration": est_duration,
-        })
-
-def delete_patient(record_id: int):
-    with engine.begin() as conn:
-        conn.execute(text("""
-            DELETE FROM clinic_queue
-            WHERE record_id = :record_id
-        """), {"record_id": record_id})
-
 def get_surge_probability() -> float:
     
-    df = fetch_queue()
+    df = db_manager.fetch_queue()
     now = datetime.now()
     if not df.empty:
         df["arrival_time"] = pd.to_datetime(df["arrival_time"])
@@ -181,7 +136,7 @@ def run_simulation():
             current_doctors = sim_config["num_doctors"]
             current_speed = sim_config["sim_speed"]
 
-            df = fetch_queue()
+            df = db_manager.fetch_queue()
             now = datetime.now()
 
             if not df.empty:
@@ -202,7 +157,7 @@ def run_simulation():
                             duration_sec = int(patient["est_duration"])
                             doctors_free_at[cid][i] = now + timedelta(seconds=duration_sec)
 
-                            delete_patient(int(patient["record_id"]))
+                            db_manager.delete_patient(int(patient["record_id"]))
                             waited_min = (now - patient["arrival_time"]).total_seconds() / 60.0
                             print(f"👨‍⚕️ [{cid}] Doc {i+1} took Patient {patient['patient_id']} (waited {waited_min:.1f} min)")
 
@@ -215,7 +170,7 @@ def run_simulation():
                 if random.random() < current_prob:
                     new_id = random.randint(1000, 9999)
                     priority = random.choices([1, 2, 3, 4, 5], weights=[5, 10, 50, 25, 10])[0]
-                    insert_patient(cid, new_id, now, priority, get_duration(priority))
+                    db_manager.insert_patient(cid, new_id, now, priority, get_duration(priority))
                     print(f"🔔 Walk-in [{now.strftime('%H:%M:%S')}] {cid}: Patient {new_id} added")
 
             # Pause based on the dynamic slider speed
@@ -228,7 +183,8 @@ def run_simulation():
 # Start thread only once
 if "sim_thread_started" not in st.session_state:
     try:
-        init_db()
+        db_manager = DatabaseManager()
+        db_manager.init_db()
     except Exception as db_err:
         st.error(
             f"**Database connection failed.** Ensure PostgreSQL is running and `DATABASE_URL` in `.env` is correct.\n\n"
@@ -246,7 +202,7 @@ if "sim_thread_started" not in st.session_state:
 # Sidebar Controls for the Simulation
 with st.sidebar:
     try:
-        sidebar_queue_df = fetch_queue()
+        sidebar_queue_df = db_manager.fetch_queue()
         total_waiting_system = len(sidebar_queue_df)
     except Exception:
         total_waiting_system = 0
@@ -305,7 +261,7 @@ with st.sidebar:
         now = datetime.now()
         for cid in CLINIC_IDS:
             new_id = random.randint(1000, 9999)
-            insert_patient(cid, new_id, now, selected_priority, get_duration(selected_priority))
+            db_manager.insert_patient(cid, new_id, now, selected_priority, get_duration(selected_priority))
         st.toast(f"✅ Patient (Priority {selected_priority}) added to all clinics!")
 
 @st.fragment(run_every=timedelta(seconds=float(sim_config["sim_speed"])))
@@ -313,7 +269,7 @@ def render_dashboard():
     st.title("🏥 QueueIQ Live Dashboard")
 
     try:
-        full_df = fetch_queue()
+        full_df = db_manager.fetch_queue()
         if not full_df.empty:
             full_df["arrival_time"] = pd.to_datetime(full_df["arrival_time"])
     except Exception as e:
