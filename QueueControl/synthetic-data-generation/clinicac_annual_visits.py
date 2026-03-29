@@ -3,65 +3,32 @@ import numpy as np
 from datetime import datetime, timedelta
 import os
 
-from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+from database.database_manager import DatabaseManager
 
 # -----------------------------
 # DATABASE & ENVIRONMENT
 # -----------------------------
-_ENV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
-load_dotenv(dotenv_path=_ENV_PATH, override=True)
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    print("❌ DATABASE_URL not found in .env. Please set it before running.")
-    exit(1)
 
 try:
-    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
-    # Test connection
-    with engine.connect() as conn:
-        conn.execute(text("SELECT 1"))
+    db_manager = DatabaseManager()
+    db_manager.init_db()
 except Exception as e:
-    print(f"❌ Failed to connect to the database: {e}")
+    print(f"**❌ Failed to connect to the database:** {e}")
     exit(1)
 
-# --- CONFIGURATION ---
+# -----------------------------
+# CONFIGURATION
+# -----------------------------
 TABLE_NAME = "clinic_historical_data"
-CLINIC_IDS = ["Downtown-Clinic", "Uptown-Clinic", "Westside-Clinic"]
+CLINIC_IDS = db_manager.fetch_clinics()['clinic_id'].tolist()  # Fetch clinic IDs from the database
 NUM_DOCTORS = 2
 DAYS_TO_SIMULATE = 365  # 1 year of data
 START_DATE = datetime(2023, 1, 1, 8, 0, 0)
 
 
-def prepare_destination_table():
-    with engine.begin() as conn:
-        conn.execute(text(f"""
-            CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
-                clinic_id VARCHAR(100) NOT NULL,
-                arrival_time TIMESTAMP NOT NULL,
-                day_of_week INTEGER NOT NULL,
-                day_sin DOUBLE PRECISION NOT NULL,
-                day_cos DOUBLE PRECISION NOT NULL,
-                is_weekend INTEGER NOT NULL,
-                hour_of_day INTEGER NOT NULL,
-                hour_sin DOUBLE PRECISION NOT NULL,
-                hour_cos DOUBLE PRECISION NOT NULL,
-                priority INTEGER NOT NULL,
-                est_duration INTEGER NOT NULL,
-                queue_length_at_arrival INTEGER NOT NULL,
-                arrivals_last_1_hour DOUBLE PRECISION NOT NULL,
-                avg_wait_last_1_hour DOUBLE PRECISION NOT NULL,
-                actual_wait_minutes DOUBLE PRECISION NOT NULL,
-                arrivals_next_2_hours DOUBLE PRECISION NOT NULL,
-                is_surge_imminent INTEGER NOT NULL
-            );
-        """))
-        conn.execute(text(f"DELETE FROM {TABLE_NAME};"))
-
-
 def persist_generated_data(df_final: pd.DataFrame):
-    prepare_destination_table()
-    df_final.to_sql(TABLE_NAME, engine, if_exists="append", index=False, method="multi", chunksize=1000)
+    db_manager.prepare_training_data_table(TABLE_NAME)
+    df_final.to_sql(TABLE_NAME, db_manager.engine, if_exists="append", index=False, method="multi", chunksize=1000)
 
 def get_duration(priority: int) -> int:
     """Adds realistic variation to doctor service times."""

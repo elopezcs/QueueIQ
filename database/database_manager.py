@@ -1,0 +1,119 @@
+import os
+import pandas as pd
+from sqlalchemy import create_engine, text
+from dotenv import load_dotenv
+
+TABLE_NAME = "clinic_historical_data"
+
+class DatabaseManager:
+    def __init__(self: str):
+        _ENV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
+        load_dotenv(dotenv_path=_ENV_PATH, override=True)
+        DATABASE_URL = os.getenv("DATABASE_URL")
+        if not DATABASE_URL:
+            print(f"**DATABASE_URL is not set.** Expected to load it from {_ENV_PATH}. Add it to your `.env` file and restart the app.")
+            exit(1)
+
+        self.engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+
+    def init_db(self):
+        with self.engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS clinics (
+                    clinic_id VARCHAR(100) PRIMARY KEY
+                );
+            """))
+            conn.execute(text("""
+                INSERT INTO clinics (clinic_id)
+                VALUES
+                    ('Downtown-Clinic'),
+                    ('Uptown-Clinic'),
+                    ('Westside-Clinic')
+                ON CONFLICT (clinic_id) DO NOTHING;
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS clinic_queue (
+                    record_id SERIAL PRIMARY KEY,
+                    clinic_id VARCHAR(100) NOT NULL,
+                    patient_id INTEGER NOT NULL,
+                    arrival_time TIMESTAMP NOT NULL,
+                    priority INTEGER NOT NULL,
+                    est_duration INTEGER NOT NULL
+                );
+            """))
+            conn.execute(text(f"""
+                CREATE TABLE IF NOT EXISTS clinic_historical_data (
+                    clinic_id VARCHAR(100) NOT NULL,
+                    arrival_time TIMESTAMP NOT NULL,
+                    day_of_week INTEGER NOT NULL,
+                    day_sin DOUBLE PRECISION NOT NULL,
+                    day_cos DOUBLE PRECISION NOT NULL,
+                    is_weekend INTEGER NOT NULL,
+                    hour_of_day INTEGER NOT NULL,
+                    hour_sin DOUBLE PRECISION NOT NULL,
+                    hour_cos DOUBLE PRECISION NOT NULL,
+                    priority INTEGER NOT NULL,
+                    est_duration INTEGER NOT NULL,
+                    queue_length_at_arrival INTEGER NOT NULL,
+                    arrivals_last_1_hour DOUBLE PRECISION NOT NULL,
+                    avg_wait_last_1_hour DOUBLE PRECISION NOT NULL,
+                    actual_wait_minutes DOUBLE PRECISION NOT NULL,
+                    arrivals_next_2_hours DOUBLE PRECISION NOT NULL,
+                    is_surge_imminent INTEGER NOT NULL
+                );
+            """))
+
+    def fetch_queue(self) -> pd.DataFrame:
+        query = text("""
+            SELECT record_id, clinic_id, patient_id, arrival_time, priority, est_duration
+            FROM clinic_queue
+            ORDER BY clinic_id, priority ASC, arrival_time ASC
+        """)
+        with self.engine.connect() as conn:
+            return pd.read_sql_query(query, conn)
+
+    def fetch_clinics(self) -> pd.DataFrame:
+        query = text("""
+            SELECT clinic_id
+            FROM clinics
+            ORDER BY clinic_id ASC
+        """)
+        with self.engine.connect() as conn:
+            return pd.read_sql_query(query, conn)
+
+    def insert_patient(self, clinic_id: str, patient_id: int, arrival_time: pd.Timestamp, priority: int, est_duration: int):
+        with self.engine.begin() as conn:
+            conn.execute(text("""
+                INSERT INTO clinic_queue (clinic_id, patient_id, arrival_time, priority, est_duration)
+                VALUES (:clinic_id, :patient_id, :arrival_time, :priority, :est_duration)
+            """), {
+                "clinic_id": clinic_id,
+                "patient_id": patient_id,
+                "arrival_time": arrival_time,
+                "priority": priority,
+                "est_duration": est_duration,
+            })
+
+    def delete_patient(self, record_id: int):
+        with self.engine.begin() as conn:
+            conn.execute(text("""
+                DELETE FROM clinic_queue
+                WHERE record_id = :record_id
+            """), {"record_id": record_id})
+
+
+    def fetch_training_data(self, table_name) -> pd.DataFrame:
+        query = text(f"SELECT * FROM {table_name}")
+        with self.engine.connect() as conn:
+            df = pd.read_sql_query(query, conn)
+
+        if df.empty:
+            raise ValueError(
+                f"Table '{table_name}' is empty. Generate or load synthetic data before training the model."
+            )
+
+        return df
+    
+    def prepare_training_data_table(self, table_name):
+        with self.engine.begin() as conn:
+            conn.execute(text(f"DELETE FROM {table_name};"))
