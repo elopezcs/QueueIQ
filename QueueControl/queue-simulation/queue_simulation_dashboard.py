@@ -60,7 +60,7 @@ MODEL_PATH = os.path.abspath(
     os.path.join(SCRIPT_DIR, "..", "models", "rush_hour_predictor_model.joblib")
 )
 TRAINING_SCRIPT_PATH = os.path.abspath(
-    os.path.join(SCRIPT_DIR, "..", "src", "rush_hour_predictor_model.py")
+    os.path.join(SCRIPT_DIR, "..", "model-training", "rush_hour_predictor_model.py")
 )
 
 try:
