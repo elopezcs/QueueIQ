@@ -18,12 +18,12 @@ That launcher starts:
 - QueueControl backend on `http://127.0.0.1:8001/docs`
 - QueueControl dashboard on `http://127.0.0.1:8501`
 
-## Manual QueueControl-only run
+## Running only QueueControl simulation
 
 Simulator:
 
 ```powershell
-.\.venv\Scripts\python.exe QueueControl\queue-simulation\backend-queue-simulation.py
+.\.venv\Scripts\python.exe QueueControl\queue-simulation\queue_simulation_dashboard.py
 ```
 
 API:
@@ -32,13 +32,12 @@ API:
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --app-dir QueueControl\backend
 ```
 
-Dashboard:
-
+Historical Clinical Synthetic Data:
+- Training the rush hour probability model relies on synthetic clinical historical data. To run only the synthetic data generation file, run below command:
 ```powershell
-.\.venv\Scripts\python.exe -m streamlit run QueueControl\queue-simulation\frontend-dashboard.py --server.address 127.0.0.1 --server.port 8501
+.\.venv\Scripts\python.exe QueueControl\synthetic-data-generation\clinical_annual_visits.py
 ```
 
 ## Notes
-
 - Use the root `requirements.txt` as the shared dependency file for the full workspace.
-- The simulator keeps `QueueControl/clinic_queue.csv` moving so the dashboard and queue API have live data to show.
+- The simulator keeps the queue data clinic_queue in Postgresql local database  moving so the dashboard and queue API have live data to show.

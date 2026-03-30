@@ -7,13 +7,18 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 import joblib
+import importlib.util
 import os
 import re
+import subprocess
 import sys
+import logging
+
+logger = logging.getLogger("queueiq.api")
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
+    sys.path.insert(0, REPO_ROOT)   
 
 # -----------------------------
 # DATABASE & ENVIRONMENT
@@ -23,7 +28,7 @@ try:
     db_manager = DatabaseManager()
     db_manager.init_db()
 except Exception as e:
-    print(f"**❌ Failed to connect to the database:** {e}")
+    logger.error(f"**❌ Failed to connect to the database:** {e}")
     exit(1)
 
 from dotenv import load_dotenv
@@ -108,17 +113,67 @@ TABLE_NAME = "clinic_historical_data"
 MODEL_PATH = os.path.abspath(
     os.path.join(SCRIPT_DIR, "..", "models", "rush_hour_predictor_model.joblib")
 )
+SYNTHETIC_DATA_SCRIPT_PATH = os.path.abspath(
+    os.path.join(SCRIPT_DIR, "..", "synthetic-data-generation", "clinical_annual_visits.py")
+)
 
 
 def remove_existing_model():
     if os.path.exists(MODEL_PATH):
         os.remove(MODEL_PATH)
-        print(f"🗑️ Deleted existing model at {MODEL_PATH}")
+        logger.info(f"🗑️ Deleted existing model at {MODEL_PATH}")
+
+
+def _should_generate_synthetic_data(exc: Exception) -> bool:
+    error_text = str(exc).lower()
+    return "is empty" in error_text or "does not exist" in error_text or "undefinedtable" in error_text
+
+
+def _run_synthetic_data_script() -> None:
+    logger.warning(
+        "Training data does not exist. Synthetic data needs to be generated before proceeding with model training."
+    )
+    logger.info(f"Running synthetic data generator at {SYNTHETIC_DATA_SCRIPT_PATH}...")
+
+    try:
+        completed_process = subprocess.run(
+            [sys.executable, SYNTHETIC_DATA_SCRIPT_PATH],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        error_details = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+        raise RuntimeError(
+            f"Failed to generate synthetic data before training. Original error: {error_details}"
+        ) from exc
+
+    if completed_process.stdout.strip():
+        logger.info(completed_process.stdout.strip())
+    if completed_process.stderr.strip():
+        logger.warning(completed_process.stderr.strip())
+
+
+def _fetch_or_generate_training_data() -> pd.DataFrame:
+    try:
+        return db_manager.fetch_training_data(TABLE_NAME)
+    except Exception as exc:
+        if not _should_generate_synthetic_data(exc):
+            error_message = (
+                f"❌ Database or training table '{TABLE_NAME}' could not be loaded. "
+                f"Original error: {exc}"
+            )
+            logger.error(error_message)
+            raise RuntimeError(error_message) from exc
+
+        _run_synthetic_data_script()
+        return db_manager.fetch_training_data(TABLE_NAME)
 
 
 def train_model():
-    print(f"📥 Loading training data from database table '{TABLE_NAME}'...")
-    df = db_manager.fetch_training_data(TABLE_NAME)
+    logger.info(f"📥 Loading training data from database table '{TABLE_NAME}'...")
+    df = _fetch_or_generate_training_data()
 
     # 1. Define Features (X) and Target (y)
     missing_columns = [column for column in FEATURES + [TARGET] if column not in df.columns]
@@ -140,7 +195,7 @@ def train_model():
     # 2. Train/Test Split (80% training, 20% testing)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
-    print("🧠 Training neural network classifier...")
+    logger.info("🧠 Training neural network classifier...")
     model = Pipeline([
         ("imputer", SimpleImputer(strategy="median")),
         ("scaler", StandardScaler()),
@@ -165,23 +220,23 @@ def train_model():
     model.fit(X_train, y_train)
 
     # 3. Evaluate the Model
-    print("\n📊 Model Evaluation:")
+    logger.info("\n📊 Model Evaluation:")
     y_pred = model.predict(X_test)
     y_prob = model.predict_proba(X_test)[:, 1]
     accuracy = accuracy_score(y_test, y_pred)
     roc_auc = roc_auc_score(y_test, y_prob)
 
-    print(f"Accuracy: {accuracy:.4f} (expected >= {EXPECTED_ACCURACY:.4f})")
-    print(f"ROC-AUC Score: {roc_auc:.4f} (expected >= {EXPECTED_ROC_AUC:.4f})")
-    print(f"Accuracy Target Met: {'Yes' if accuracy >= EXPECTED_ACCURACY else 'No'}")
-    print(f"ROC-AUC Target Met: {'Yes' if roc_auc >= EXPECTED_ROC_AUC else 'No'}")
-    print("\nClassification Report:\n", classification_report(y_test, y_pred, zero_division=0))
+    logger.info(f"Accuracy: {accuracy:.4f} (expected >= {EXPECTED_ACCURACY:.4f})")
+    logger.info(f"ROC-AUC Score: {roc_auc:.4f} (expected >= {EXPECTED_ROC_AUC:.4f})")
+    logger.info(f"Accuracy Target Met: {'Yes' if accuracy >= EXPECTED_ACCURACY else 'No'}")
+    logger.info(f"ROC-AUC Target Met: {'Yes' if roc_auc >= EXPECTED_ROC_AUC else 'No'}")
+    logger.info("\nClassification Report:\n", classification_report(y_test, y_pred, zero_division=0))
 
     # 4. Save the Model
     os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
     remove_existing_model()
     joblib.dump(model, MODEL_PATH)
-    print(f"✅ Neural network model saved successfully to {MODEL_PATH}")
+    logger.info(f"✅ Neural network model saved successfully to {MODEL_PATH}")
 
 if __name__ == "__main__":
     train_model()
