@@ -14,18 +14,29 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from database.database_manager import DatabaseManager
-
 # -----------------------------
 # DATABASE & ENVIRONMENT
 # -----------------------------
-
+from database.database_manager import DatabaseManager
 try:
     db_manager = DatabaseManager()
     db_manager.init_db()
 except Exception as e:
     print(f"**❌ Failed to connect to the database:** {e}")
     exit(1)
+
+from dotenv import load_dotenv
+
+_ENV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
+load_dotenv(dotenv_path=_ENV_PATH, override=True)
+
+DEFAULT_FEATURES = [
+    "is_weekend", "day_sin", "day_cos", "hour_sin", "hour_cos",
+    "queue_length_at_arrival", "arrivals_last_1_hour", "avg_wait_last_1_hour"
+]
+FEATURES_ENV = os.getenv("RUSH_HOUR_MODEL_FEATURES")
+FEATURES = [feature.strip() for feature in FEATURES_ENV.split(",")] if FEATURES_ENV else DEFAULT_FEATURES
+TARGET = os.getenv("RUSH_HOUR_MODEL_TARGET", "is_surge_imminent")
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TABLE_NAME = "clinic_historical_data"
@@ -45,18 +56,11 @@ def train_model():
     df = db_manager.fetch_training_data(TABLE_NAME)
 
     # 1. Define Features (X) and Target (y)
-    # We drop identifiers and future-leaking columns (like arrivals_next_2_hours)
-    features = [
-        "is_weekend", "day_sin", "day_cos",
-        "hour_sin", "hour_cos",
-        "queue_length_at_arrival", "arrivals_last_1_hour", "avg_wait_last_1_hour"
-    ]
+    training_df = df[FEATURES + [TARGET]].replace([np.inf, -np.inf], np.nan)
+    training_df = training_df.dropna(subset=[TARGET])
 
-    training_df = df[features + ["is_surge_imminent"]].replace([np.inf, -np.inf], np.nan)
-    training_df = training_df.dropna(subset=["is_surge_imminent"])
-
-    X = training_df[features]
-    y = training_df["is_surge_imminent"].astype(int)
+    X = training_df[FEATURES]
+    y = training_df[TARGET].astype(int)
 
     if y.nunique() < 2:
         raise ValueError("Training data must contain both surge and non-surge examples.")

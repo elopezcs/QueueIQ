@@ -4,8 +4,6 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
 from dotenv import load_dotenv
 
-TABLE_NAME = "clinic_historical_data"
-
 class DatabaseManager:
     def __init__(self: str):
         _ENV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
