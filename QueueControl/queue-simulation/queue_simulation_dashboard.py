@@ -11,6 +11,9 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
+import logging
+
+logger = logging.getLogger("queueiq.api")
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if REPO_ROOT not in sys.path:
@@ -128,7 +131,7 @@ def get_surge_probability() -> float:
 # BACKGROUND SIMULATION THREAD
 # -----------------------------
 def run_simulation():
-    print("--- 🏥 BACKGROUND SIMULATION STARTED ---")
+    ("--- 🏥 BACKGROUND SIMULATION STARTED ---")
 
     while True:
         try:
@@ -159,7 +162,7 @@ def run_simulation():
 
                             db_manager.delete_patient(int(patient["record_id"]))
                             waited_min = (now - patient["arrival_time"]).total_seconds() / 60.0
-                            print(f"👨‍⚕️ [{cid}] Doc {i+1} took Patient {patient['patient_id']} (waited {waited_min:.1f} min)")
+                            logger.info(f"👨‍⚕️ [{cid}] Doc {i+1} took Patient {patient['patient_id']} (waited {waited_min:.1f} min)")
 
                             waiting_patients = waiting_patients.iloc[1:]
 
@@ -171,13 +174,13 @@ def run_simulation():
                     new_id = random.randint(1000, 9999)
                     priority = random.choices([1, 2, 3, 4, 5], weights=[5, 10, 50, 25, 10])[0]
                     db_manager.insert_patient(cid, new_id, now, priority, get_duration(priority))
-                    print(f"🔔 Walk-in [{now.strftime('%H:%M:%S')}] {cid}: Patient {new_id} added")
+                    logger.info(f"🔔 Walk-in [{now.strftime('%H:%M:%S')}] {cid}: Patient {new_id} added")
 
             # Pause based on the dynamic slider speed
             time.sleep(current_speed)
 
         except Exception as e:
-            print(f"Simulation Error: {e}")
+            logger.error(f"Simulation Error: {e}")
             time.sleep(1)
 
 # Start thread only once
