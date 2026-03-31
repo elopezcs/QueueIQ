@@ -15,9 +15,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Copy the trained model into the image as requested
-COPY QueueControl/models/queueiq_xgb_model.joblib /app/QueueControl/models/queueiq_xgb_model.joblib
-
 EXPOSE 8501
 
 CMD ["python", "-m", "streamlit", "run", "QueueControl/queue-simulation/frontend-dashboard.py", "--server.address", "0.0.0.0", "--server.port", "8501"]

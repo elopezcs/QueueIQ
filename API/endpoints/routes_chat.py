@@ -125,6 +125,7 @@ async def chat_start(request: Request):
             disclaimers=disclaimers,
         )
     except Exception:
+        logger.exception("Error creating chat session for clinic_id=%s", clinic_id)
         return _error(500, "Unable to create chat session", "INTERNAL_SERVER_ERROR")
 
 
@@ -185,6 +186,7 @@ async def chat_turn(request: Request):
             progress=progress,
         )
     except Exception:
+        logger.exception("Error processing chat turn for session_id=%s", session_id)
         return _error(500, "Unable to process chat turn", "INTERNAL_SERVER_ERROR")
 
 
@@ -238,4 +240,5 @@ async def chat_end(request: Request):
 
         return ChatEndOut(**result)
     except Exception:
+        logger.exception("Error finalizing chat session for session_id=%s", session_id)
         return _error(500, "Unable to finalize chat session", "INTERNAL_SERVER_ERROR")
