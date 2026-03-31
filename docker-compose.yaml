@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.chatbot-backend
-    image: elopezcastaneda5061/queueiq-chatbot-backend:latest
+    image: mosio7818/queueiq-chatbot-backend:latest
     env_file:
       - .env
     ports:
@@ -14,7 +14,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.chatbot-frontend
-    image: elopezcastaneda5061/queueiq-chatbot-frontend:latest
+    image: mosio7818/queueiq-chatbot-frontend:latest
     ports:
       - "5173:80"
     depends_on:
@@ -25,7 +25,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.queuecontrol-dashboard
-    image: elopezcastaneda5061/queueiq-queuecontrol-dashboard:latest
+    image: mosio7818/queueiq-queuecontrol-dashboard:latest
     env_file:
       - .env
     ports:
@@ -40,3 +40,18 @@ services:
       - DB_HOST=${DB_HOST}
       - DB_PORT=${DB_PORT}
       - DB_NAME=${DB_NAME}
+      - RUSH_HOUR_MODEL_FEATURES=${RUSH_HOUR_MODEL_FEATURES}
+      - RUSH_HOUR_MODEL_TARGET=${RUSH_HOUR_MODEL_TARGET}
+      - RUSH_HOUR_MODEL_HIDDEN_LAYER_SIZES=${RUSH_HOUR_MODEL_HIDDEN_LAYER_SIZES}
+      - RUSH_HOUR_MODEL_ACTIVATION=${RUSH_HOUR_MODEL_ACTIVATION}
+      - RUSH_HOUR_MODEL_SOLVER=${RUSH_HOUR_MODEL_SOLVER}
+      - RUSH_HOUR_MODEL_ALPHA=${RUSH_HOUR_MODEL_ALPHA}
+      - RUSH_HOUR_MODEL_BATCH_SIZE=${RUSH_HOUR_MODEL_BATCH_SIZE}
+      - RUSH_HOUR_MODEL_LEARNING_RATE_INIT=${RUSH_HOUR_MODEL_LEARNING_RATE_INIT}
+      - RUSH_HOUR_MODEL_EPOCHS=${RUSH_HOUR_MODEL_EPOCHS}
+      - RUSH_HOUR_MODEL_EARLY_STOPPING=${RUSH_HOUR_MODEL_EARLY_STOPPING}
+      - RUSH_HOUR_MODEL_VALIDATION_FRACTION=${RUSH_HOUR_MODEL_VALIDATION_FRACTION}
+      - RUSH_HOUR_MODEL_N_ITER_NO_CHANGE=${RUSH_HOUR_MODEL_N_ITER_NO_CHANGE}
+      - RUSH_HOUR_MODEL_RANDOM_STATE=${RUSH_HOUR_MODEL_RANDOM_STATE}
+      - RUSH_HOUR_MODEL_EXPECTED_ACCURACY=${RUSH_HOUR_MODEL_EXPECTED_ACCURACY}
+      - RUSH_HOUR_MODEL_EXPECTED_ROC_AUC=${RUSH_HOUR_MODEL_EXPECTED_ROC_AUC}

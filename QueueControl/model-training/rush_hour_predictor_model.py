@@ -8,6 +8,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 import joblib
 import os
+import subprocess
 import sys
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -43,6 +44,9 @@ TABLE_NAME = "clinic_historical_data"
 MODEL_PATH = os.path.abspath(
     os.path.join(SCRIPT_DIR, "..", "models", "rush_hour_predictor_model.joblib")
 )
+SYNTHETIC_DATA_SCRIPT_PATH = os.path.abspath(
+    os.path.join(SCRIPT_DIR, "..", "synthetic-data-generation", "clinical_annual_visits.py")
+)
 
 
 def remove_existing_model():
@@ -51,9 +55,51 @@ def remove_existing_model():
         print(f"🗑️ Deleted existing model at {MODEL_PATH}")
 
 
+def _should_generate_synthetic_data(exc: Exception) -> bool:
+    error_text = str(exc).lower()
+    return "is empty" in error_text or "does not exist" in error_text or "undefinedtable" in error_text
+
+
+def _run_synthetic_data_script() -> None:
+    print(
+        f"⚠️ Training data does not exist. Synthetic data needs to be generated before proceeding with training the model."
+    )
+    print(f"⚙️ Running synthetic data generator: {SYNTHETIC_DATA_SCRIPT_PATH}")
+
+    try:
+        completed_process = subprocess.run(
+            [sys.executable, SYNTHETIC_DATA_SCRIPT_PATH],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        error_details = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+        raise RuntimeError(
+            f"Failed to generate synthetic data before training. Original error: {error_details}"
+        ) from exc
+
+    if completed_process.stdout.strip():
+        print(completed_process.stdout.strip())
+    if completed_process.stderr.strip():
+        print(completed_process.stderr.strip())
+
+
+def _fetch_or_generate_training_data() -> pd.DataFrame:
+    try:
+        return db_manager.fetch_training_data(TABLE_NAME)
+    except Exception as exc:
+        if not _should_generate_synthetic_data(exc):
+            raise
+
+        _run_synthetic_data_script()
+        return db_manager.fetch_training_data(TABLE_NAME)
+
+
 def train_model():
     print(f"📥 Loading training data from database table '{TABLE_NAME}'...")
-    df = db_manager.fetch_training_data(TABLE_NAME)
+    df = _fetch_or_generate_training_data()
 
     # 1. Define Features (X) and Target (y)
     training_df = df[FEATURES + [TARGET]].replace([np.inf, -np.inf], np.nan)

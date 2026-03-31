@@ -170,7 +170,7 @@ Windows PowerShell:
 ```
 
 ```powershell
-.\.venv\Scripts\python.exe -m streamlit run QueueControl\queue-simulation\frontend-dashboard.py --server.address 127.0.0.1 --server.port 8501
+.\.venv\Scripts\python.exe -m streamlit run QueueControl\queue-simulation\queue_simulation_dashboard.py --server.address 127.0.0.1 --server.port 8501
 ```
 
 macOS or Linux:
@@ -184,7 +184,7 @@ macOS or Linux:
 ```
 
 ```bash
-./.venv/bin/python -m streamlit run QueueControl/queue-simulation/frontend-dashboard.py --server.address 127.0.0.1 --server.port 8501
+./.venv/bin/python -m streamlit run QueueControl/queue-simulation/queue_simulation_dashboard --server.address 127.0.0.1 --server.port 8501
 ```
 
 ## First-Run Checks
