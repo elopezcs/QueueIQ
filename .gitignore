@@ -1483,3 +1483,6 @@ Chatbot/backend/reports/
 
 # Root launcher runtime logs
 runtime-logs/
+
+# Local env files with personal secrets
+env-mustafa
