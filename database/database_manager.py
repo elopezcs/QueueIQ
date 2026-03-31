@@ -31,6 +31,7 @@ class DatabaseManager:
 
     def init_db(self):
         with self.engine.begin() as conn:
+            conn.execute(text("SELECT pg_advisory_xact_lock(:lock_key);"), {"lock_key": 22003130})
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS clinics (
                     clinic_id VARCHAR(100) PRIMARY KEY

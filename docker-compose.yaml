@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.chatbot-backend
-    image: mosio7818/queueiq-chatbot-backend:latest
+    image: elopezcastaneda5061/queueiq-chatbot-backend:latest
     env_file:
       - .env
     ports:
@@ -14,7 +14,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.chatbot-frontend
-    image: mosio7818/queueiq-chatbot-frontend:latest
+    image: elopezcastaneda5061/queueiq-chatbot-frontend:latest
     ports:
       - "5173:80"
     depends_on:
@@ -24,15 +24,17 @@ services:
   queuecontrol-simulator:
     build:
       context: .
-      dockerfile: Dockerfile.queuecontrol-simulator
-    image: mosio7818/queueiq-queuecontrol-simulator:latest
+      dockerfile: Dockerfile.queuecontrol-dashboard
+    image: elopezcastaneda5061/queueiq-queuecontrol-dashboard:latest
     env_file:
       - .env
+    ports:
+      - "8501:8501"
     restart: unless-stopped
 
   web:
     build: .
-    environment: 
+    environment:
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_HOST=${DB_HOST}
