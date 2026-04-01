@@ -32,7 +32,7 @@ class ClinicalAnnualVisitsGenerator:
         self.logger = app_logger or logger
         self.config = config or ClinicalAnnualVisitsConfig()
         self.db_manager = db_manager or self._create_db_manager()
-        self.clinic_names = self.db_manager.fetch_clinics()["name"].tolist()
+        self.clinic_names = self.db_manager.fetch_clinics()["clinic_name"].tolist()
 
     def _create_db_manager(self) -> DatabaseManager:
         try:
@@ -78,7 +78,7 @@ class ClinicalAnnualVisitsGenerator:
                         priority = np.random.choice([1, 2, 3, 4, 5], p=[0.05, 0.10, 0.50, 0.25, 0.10])
 
                         all_visits.append({
-                            "name": clinic,
+                            "clinic_name": clinic,
                             "arrival_time": arrival_time,
                             "day_of_week": current_date.weekday(),
                             "is_weekend": int(is_weekend),
@@ -88,7 +88,7 @@ class ClinicalAnnualVisitsGenerator:
                         })
 
         df_visits = pd.DataFrame(all_visits)
-        return df_visits.sort_values(by=["name", "arrival_time"]).reset_index(drop=True)
+        return df_visits.sort_values(by=["clinic_name", "arrival_time"]).reset_index(drop=True)
 
     def _get_hourly_arrival_rate(self, hour: int, is_weekend: bool) -> int:
         if 8 <= hour < 11:
@@ -110,7 +110,7 @@ class ClinicalAnnualVisitsGenerator:
         final_data: list[dict[str, object]] = []
 
         for clinic in self.clinic_names:
-            clinic_data = df_visits[df_visits["name"] == clinic].to_dict("records")
+            clinic_data = df_visits[df_visits["clinic_name"] == clinic].to_dict("records")
             doctors_free_at = [self.config.start_date] * self.config.num_doctors
             queue_history: list[tuple[datetime, datetime]] = []
 
@@ -146,15 +146,15 @@ class ClinicalAnnualVisitsGenerator:
         df_final["day_sin"] = np.sin(2 * np.pi * df_final["day_of_week"] / 7.0)
         df_final["day_cos"] = np.cos(2 * np.pi * df_final["day_of_week"] / 7.0)
 
-        df_final = df_final.sort_values(by=["name", "arrival_time"]).reset_index(drop=True)
+        df_final = df_final.sort_values(by=["clinic_name", "arrival_time"]).reset_index(drop=True)
         df_final = df_final.set_index("arrival_time")
 
         lagged_arrivals = []
         lagged_wait_time = []
 
         for clinic in self.clinic_names:
-            clinic_df = df_final[df_final["name"] == clinic].copy()
-            past_1h_counts = clinic_df["name"].rolling("1h", closed="left").count().fillna(0)
+            clinic_df = df_final[df_final["clinic_name"] == clinic].copy()
+            past_1h_counts = clinic_df["clinic_name"].rolling("1h", closed="left").count().fillna(0)
             past_1h_wait = clinic_df["actual_wait_minutes"].rolling("1h", closed="left").mean().fillna(0)
             lagged_arrivals.extend(past_1h_counts.tolist())
             lagged_wait_time.extend(past_1h_wait.tolist())
@@ -171,8 +171,8 @@ class ClinicalAnnualVisitsGenerator:
         arrivals_next_2h = []
 
         for clinic in self.clinic_names:
-            clinic_df = df_final[df_final["name"] == clinic].copy()
-            future_counts = clinic_df["name"].rolling("2h").count().shift(-1).fillna(0)
+            clinic_df = df_final[df_final["clinic_name"] == clinic].copy()
+            future_counts = clinic_df["clinic_name"].rolling("2h").count().shift(-1).fillna(0)
             arrivals_next_2h.extend(future_counts.tolist())
 
         df_final = df_final.reset_index()
@@ -182,7 +182,7 @@ class ClinicalAnnualVisitsGenerator:
 
     def finalize_dataset(self, df_final: pd.DataFrame) -> pd.DataFrame:
         columns = [
-            "name", "arrival_time",
+            "clinic_name", "arrival_time",
             "day_of_week", "day_sin", "day_cos", "is_weekend",
             "hour_of_day", "hour_sin", "hour_cos",
             "priority", "est_duration",
