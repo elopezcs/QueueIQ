@@ -378,7 +378,7 @@ def inject_styles() -> None:
 # -----------------------------
 # SHARED STATE (UI <-> THREAD)
 # -----------------------------
-CLINIC_IDS = db_manager.fetch_clinics()["clinic_id"].tolist()
+CLINIC_NAMES = db_manager.fetch_clinics()["clinic_name"].tolist()
 
 
 @st.cache_resource
@@ -388,7 +388,7 @@ def get_sim_config():
 
 @st.cache_resource
 def get_doctors_state():
-    return {cid: [datetime.now()] for cid in CLINIC_IDS}
+    return {cid: [datetime.now()] for cid in CLINIC_NAMES}
 
 
 sim_config = get_sim_config()
@@ -438,8 +438,8 @@ def get_surge_probability() -> float:
     if not df.empty:
         df["arrival_time"] = pd.to_datetime(df["arrival_time"])
 
-    for cid in CLINIC_IDS:
-        clinic_df = df[df["clinic_id"] == cid] if not df.empty else pd.DataFrame()
+    for cid in CLINIC_NAMES:
+        clinic_df = df[df["clinic_name"] == cid] if not df.empty else pd.DataFrame()
 
         recent_arrivals = 0
         recent_wait = 0.0
@@ -508,7 +508,7 @@ def build_queue_table(df_waiting: pd.DataFrame):
     display_df = df_waiting.copy()
     display_df["arrival_time"] = display_df["arrival_time"].dt.strftime("%Y-%m-%d %H:%M:%S")
     display_df["urgency"] = display_df["priority"].map(PRIORITY_LABELS)
-    display_df = display_df.drop(columns=["record_id", "clinic_id"], errors="ignore")
+    display_df = display_df.drop(columns=["record_id", "clinic_name"], errors="ignore")
     display_df = display_df.rename(
         columns={
             "patient_id": "Patient ID",
@@ -582,7 +582,7 @@ def build_trends_chart(df_trends: pd.DataFrame) -> go.Figure:
                 x=trend_data.index,
                 y=trend_data[priority],
                 mode="lines",
-                name=f"P{priority} - {PRIORITY_LABELS.get(priority, 'Unknown')}",
+                clinic_name=f"P{priority} - {PRIORITY_LABELS.get(priority, 'Unknown')}",
                 line={"width": 3, "color": PRIORITY_COLORS.get(priority, "#8fa7c7")},
             )
         )
@@ -659,13 +659,13 @@ def run_simulation() -> None:
             if not df.empty:
                 df["arrival_time"] = pd.to_datetime(df["arrival_time"])
 
-                for cid in CLINIC_IDS:
+                for cid in CLINIC_NAMES:
                     while len(doctors_free_at[cid]) < current_doctors:
                         doctors_free_at[cid].append(now)
                     while len(doctors_free_at[cid]) > current_doctors:
                         doctors_free_at[cid].pop()
 
-                    waiting_patients = df[df["clinic_id"] == cid].sort_values(by=["priority", "arrival_time"])
+                    waiting_patients = df[df["clinic_name"] == cid].sort_values(by=["priority", "arrival_time"])
 
                     for i in range(current_doctors):
                         if now >= doctors_free_at[cid][i] and not waiting_patients.empty:
@@ -743,7 +743,7 @@ with st.sidebar:
 
     selected_clinic = st.selectbox(
         "Clinic focus",
-        CLINIC_IDS,
+        CLINIC_NAMES,
         key="selected_clinic",
     )
 
@@ -794,7 +794,7 @@ with st.sidebar:
 
     if st.button("Add patient to all clinics", key="btn_add_patient_all"):
         now = datetime.now()
-        for cid in CLINIC_IDS:
+        for cid in CLINIC_NAMES:
             new_id = random.randint(1000, 9999)
             db_manager.insert_patient(cid, new_id, now, selected_priority, get_duration(selected_priority))
         st.toast(f"Patient batch added across all clinics at priority P{selected_priority}.")
@@ -831,11 +831,11 @@ def render_dashboard() -> None:
         st.error(f"Database error: {e}")
         full_df = pd.DataFrame()
 
-    if not full_df.empty and "clinic_id" in full_df.columns:
-        df_waiting = full_df[full_df["clinic_id"] == selected_clinic].copy()
+    if not full_df.empty and "clinic_name" in full_df.columns:
+        df_waiting = full_df[full_df["clinic_name"] == selected_clinic].copy()
     else:
         df_waiting = pd.DataFrame(
-            columns=["record_id", "clinic_id", "patient_id", "arrival_time", "priority", "est_duration"]
+            columns=["record_id", "clinic_name", "patient_id", "arrival_time", "priority", "est_duration"]
         )
 
     if not df_waiting.empty:
@@ -903,8 +903,8 @@ def render_dashboard() -> None:
         "Smoothed one-minute trends across priority bands to make flow shifts easier to read.",
     )
 
-    if not full_df.empty and "clinic_id" in full_df.columns:
-        df_trends = full_df[full_df["clinic_id"] == selected_clinic].copy()
+    if not full_df.empty and "clinic_name" in full_df.columns:
+        df_trends = full_df[full_df["clinic_name"] == selected_clinic].copy()
         if not df_trends.empty:
             df_trends["arrival_time"] = pd.to_datetime(df_trends["arrival_time"])
             df_trends.set_index("arrival_time", inplace=True)
