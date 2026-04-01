@@ -34,21 +34,25 @@ class DatabaseManager:
             conn.execute(text("SELECT pg_advisory_xact_lock(:lock_key);"), {"lock_key": 22003130})
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS clinics (
-                    clinic_id VARCHAR(100) PRIMARY KEY
+                    id VARCHAR(100) PRIMARY KEY,
+                    name VARCHAR(100) NOT NULL UNIQUE,
+                    address_or_city VARCHAR(100) NOT NULL
                 );
             """))
             conn.execute(text("""
-                INSERT INTO clinics (clinic_id)
+                INSERT INTO clinics (id, name, address_or_city)
                 VALUES
-                    ('Downtown-Clinic'),
-                    ('Uptown-Clinic'),
-                    ('Westside-Clinic')
-                ON CONFLICT (clinic_id) DO NOTHING;
+                    ('kitchener-downtown', 'Kitchener Downtown', 'Kitchener, ON'),
+                    ('waterloo-uptown', 'Waterloo Uptown', 'Waterloo, ON'),
+                    ('waterloo-boardwalk', 'The Boardwalk', 'Kitchener, ON'),
+                    ('kitchener-fairway', 'Fairway', 'Kitchener, ON'),
+                    ('cambridge-hespeler', 'Cambridge Hespeler', 'Cambridge, ON')
+                ON CONFLICT (name) DO NOTHING;
             """))
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS clinic_queue (
                     record_id SERIAL PRIMARY KEY,
-                    clinic_id VARCHAR(100) NOT NULL,
+                    name VARCHAR(100) NOT NULL,
                     patient_id INTEGER NOT NULL,
                     arrival_time TIMESTAMP NOT NULL,
                     priority INTEGER NOT NULL,
@@ -57,7 +61,7 @@ class DatabaseManager:
             """))
             conn.execute(text(f"""
                 CREATE TABLE IF NOT EXISTS clinic_historical_data (
-                    clinic_id VARCHAR(100) NOT NULL,
+                    name VARCHAR(100) NOT NULL,
                     arrival_time TIMESTAMP NOT NULL,
                     day_of_week INTEGER NOT NULL,
                     day_sin DOUBLE PRECISION NOT NULL,
@@ -79,29 +83,29 @@ class DatabaseManager:
 
     def fetch_queue(self) -> pd.DataFrame:
         query = text("""
-            SELECT record_id, clinic_id, patient_id, arrival_time, priority, est_duration
+            SELECT record_id, name, patient_id, arrival_time, priority, est_duration
             FROM clinic_queue
-            ORDER BY clinic_id, priority ASC, arrival_time ASC
+            ORDER BY name, priority ASC, arrival_time ASC
         """)
         with self.engine.connect() as conn:
             return pd.read_sql_query(query, conn)
 
     def fetch_clinics(self) -> pd.DataFrame:
         query = text("""
-            SELECT clinic_id
+            SELECT name
             FROM clinics
-            ORDER BY clinic_id ASC
+            ORDER BY name ASC
         """)
         with self.engine.connect() as conn:
             return pd.read_sql_query(query, conn)
 
-    def insert_patient(self, clinic_id: str, patient_id: int, arrival_time: pd.Timestamp, priority: int, est_duration: int):
+    def insert_patient(self, name: str, patient_id: int, arrival_time: pd.Timestamp, priority: int, est_duration: int):
         with self.engine.begin() as conn:
             conn.execute(text("""
-                INSERT INTO clinic_queue (clinic_id, patient_id, arrival_time, priority, est_duration)
-                VALUES (:clinic_id, :patient_id, :arrival_time, :priority, :est_duration)
+                INSERT INTO clinic_queue (name, patient_id, arrival_time, priority, est_duration)
+                VALUES (:name, :patient_id, :arrival_time, :priority, :est_duration)
             """), {
-                "clinic_id": clinic_id,
+                "name": name,
                 "patient_id": patient_id,
                 "arrival_time": arrival_time,
                 "priority": priority,
