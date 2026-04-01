@@ -14,6 +14,7 @@ from API.rag.schemas import (
 )
 from API.rag.services.rag_service import get_rag_service
 from Chatbot.backend.app.auth.utils import get_authenticated_patient
+from Chatbot.backend.app.core.settings import settings
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 
@@ -64,11 +65,12 @@ def rag_models():
 
 @router.post("/seed", response_model=RagSeedOut)
 def rag_seed(request: Request):
-    patient, auth_error = _require_auth_patient(request)
-    if auth_error:
-        return auth_error
-    if str(patient.get("role") or "patient").lower() not in {"manager", "staff"}:
-        return _error(403, "Staff or manager access is required", "FORBIDDEN")
+    if str(settings.env).lower() != "dev":
+        patient, auth_error = _require_auth_patient(request)
+        if auth_error:
+            return auth_error
+        if str(patient.get("role") or "patient").lower() not in {"manager", "staff"}:
+            return _error(403, "Staff or manager access is required", "FORBIDDEN")
     return RagSeedOut(**get_rag_service().seed())
 
 
@@ -83,11 +85,14 @@ async def rag_chat_start(request: Request):
     clinic_id = _required_text(body, "clinic_id", 64)
     if isinstance(clinic_id, JSONResponse):
         return clinic_id
-    result = get_rag_service().start_session(
-        patient_id=patient["patient_id"],
-        clinic_id=clinic_id,
-        patient_profile=patient,
-    )
+    try:
+        result = get_rag_service().start_session(
+            patient_id=patient["patient_id"],
+            clinic_id=clinic_id,
+            patient_profile=patient,
+        )
+    except ValueError:
+        return _error(404, "Clinic not found", "NOT_FOUND")
     return RagChatStartOut(**result)
 
 
@@ -117,12 +122,7 @@ async def rag_chat_turn(request: Request):
         return _error(403, "Session does not belong to authenticated patient", "FORBIDDEN")
     except RuntimeError:
         return _error(409, "Session is already finalized", "SESSION_FINALIZED")
-    return RagChatTurnOut(
-        assistant_message=result.assistant_message,
-        done=result.done,
-        route=result.route,
-        trace_id=result.trace_id,
-    )
+    return RagChatTurnOut(**result)
 
 
 @router.post("/chat/end", response_model=RagChatEndOut)
@@ -142,6 +142,8 @@ async def rag_chat_end(request: Request):
         return _error(404, "Session not found", "NOT_FOUND")
     except PermissionError:
         return _error(403, "Session does not belong to authenticated patient", "FORBIDDEN")
+    except RuntimeError:
+        return _error(409, "Session has already been finalized", "SESSION_FINALIZED")
     return RagChatEndOut(**result)
 
 

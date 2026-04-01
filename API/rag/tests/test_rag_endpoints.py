@@ -1,6 +1,5 @@
 from fastapi.testclient import TestClient
 
-from API.rag.orchestrators.rag_orchestrator import RagTurnResult
 from API.main import create_app
 
 
@@ -33,18 +32,23 @@ class _FakeService:
         }
 
     def turn(self, *, patient_id: str, session_id: str, user_message: str):
-        return RagTurnResult(
-            assistant_message="answer",
-            done=False,
-            route="mixed",
-            trace_id="trace_1",
-            run_id="run_1",
-            patient_context=[{"source_type": "encounter", "source_id": "e1", "snippet": "x"}],
-            clinic_context=[{"source_type": "clinic_rule", "source_id": "r1", "snippet": "y"}],
-        )
+        return {
+            "assistant_message": "answer",
+            "done": False,
+            "progress": {"turn_count": 2, "max_turns": 10},
+        }
 
     def end(self, *, patient_id: str, session_id: str):
-        return {"session_id": session_id, "ended": True, "final_summary": "done", "sources": []}
+        return {
+            "session_id": session_id,
+            "urgency_band": "medium",
+            "visit_category": "general",
+            "wait_p50_minutes": 10,
+            "wait_p90_minutes": 20,
+            "explanation": "Operational summary.",
+            "disclaimers": ["not diagnosis"],
+            "run_id": "run_1",
+        }
 
     def run_turn(self, *, session_id: str, patient_id: str, clinic_id: str, user_message: str):
         return self.turn(patient_id=patient_id, session_id=session_id, user_message=user_message)
@@ -81,11 +85,12 @@ def test_rag_chat_start_turn_end(monkeypatch):
 
     turn = client.post("/rag/chat/turn", json={"session_id": session_id, "user_message": "What are my clinic options?"}, headers=headers)
     assert turn.status_code == 200
-    assert turn.json()["route"] == "mixed"
+    assert turn.json()["done"] is False
+    assert turn.json()["progress"]["max_turns"] == 10
 
     end = client.post("/rag/chat/end", json={"session_id": session_id}, headers=headers)
     assert end.status_code == 200
-    assert end.json()["ended"] is True
+    assert end.json()["urgency_band"] == "medium"
 
 
 def test_rag_seed_smoke(monkeypatch):

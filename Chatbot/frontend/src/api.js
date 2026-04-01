@@ -174,7 +174,7 @@ export async function createAppointment(clinicId, scheduledFor, description, ses
 }
 
 export async function startChat(clinicId) {
-  return apiFetch('/chat/start', {
+  return apiFetch('/rag/chat/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ clinic_id: clinicId }),
@@ -182,7 +182,7 @@ export async function startChat(clinicId) {
 }
 
 export async function chatTurn(sessionId, userMessage) {
-  return apiFetch('/chat/turn', {
+  return apiFetch('/rag/chat/turn', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({
@@ -193,7 +193,7 @@ export async function chatTurn(sessionId, userMessage) {
 }
 
 export async function endChat(sessionId) {
-  return apiFetch('/chat/end', {
+  return apiFetch('/rag/chat/end', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ session_id: sessionId }),

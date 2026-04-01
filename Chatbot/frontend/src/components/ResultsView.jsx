@@ -107,6 +107,7 @@ export default function ResultsView({ results, clinic, onBookNow, bookingLoading
 
         <div className="section muted small" style={{ marginTop: '16px' }}>
           run_id: {results.run_id}
+          session_id: {results.session_id}
         </div>
       </div>
     </div>

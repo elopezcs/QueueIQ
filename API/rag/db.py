@@ -38,7 +38,110 @@ def _table_sql(has_vector: bool) -> str:
         if has_vector
         else "embedding_text TEXT"
     )
+    patient_chunk_embedding_column = (
+        f"embedding vector({settings.rag_vector_dimensions})"
+        if has_vector
+        else "embedding_text TEXT"
+    )
+    patient_chunk_vector_index_sql = (
+        "CREATE INDEX IF NOT EXISTS idx_rag_patient_chunks_embedding "
+        "ON rag.patient_context_chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 50);"
+        if has_vector
+        else ""
+    )
     return f"""
+CREATE TABLE IF NOT EXISTS patients (
+  patient_id TEXT PRIMARY KEY,
+  full_name TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE,
+  email_verified INTEGER NOT NULL DEFAULT 0,
+  is_admin INTEGER NOT NULL DEFAULT 0,
+  role TEXT NOT NULL DEFAULT 'patient',
+  clinic_id TEXT,
+  password_hash TEXT,
+  medical_profile_json TEXT,
+  professional_profile_json TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  last_login_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  session_id TEXT PRIMARY KEY,
+  clinic_id TEXT NOT NULL,
+  patient_id TEXT,
+  created_at TEXT NOT NULL,
+  done INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY(patient_id) REFERENCES patients(patient_id)
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+  id BIGSERIAL PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  FOREIGN KEY(session_id) REFERENCES sessions(session_id)
+);
+
+CREATE TABLE IF NOT EXISTS outputs (
+  session_id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  urgency_band TEXT NOT NULL,
+  visit_category TEXT NOT NULL,
+  wait_p50_minutes INTEGER NOT NULL,
+  wait_p90_minutes INTEGER NOT NULL,
+  explanation TEXT NOT NULL,
+  disclaimers_json TEXT NOT NULL,
+  config_snapshot_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(session_id) REFERENCES sessions(session_id)
+);
+
+CREATE TABLE IF NOT EXISTS auth_otps (
+  id BIGSERIAL PRIMARY KEY,
+  patient_id TEXT NOT NULL,
+  email TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  used_at TEXT,
+  FOREIGN KEY(patient_id) REFERENCES patients(patient_id)
+);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  token TEXT PRIMARY KEY,
+  patient_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  FOREIGN KEY(patient_id) REFERENCES patients(patient_id)
+);
+
+CREATE TABLE IF NOT EXISTS appointments (
+  appointment_id TEXT PRIMARY KEY,
+  patient_id TEXT NOT NULL,
+  clinic_id TEXT NOT NULL,
+  session_id TEXT,
+  scheduled_for TEXT NOT NULL,
+  status TEXT NOT NULL,
+  description TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(patient_id) REFERENCES patients(patient_id),
+  FOREIGN KEY(session_id) REFERENCES sessions(session_id)
+);
+
+CREATE TABLE IF NOT EXISTS notification_logs (
+  id BIGSERIAL PRIMARY KEY,
+  appointment_id TEXT NOT NULL,
+  notification_type TEXT NOT NULL,
+  scheduled_for TEXT NOT NULL,
+  sent_at TEXT,
+  status TEXT NOT NULL,
+  detail TEXT,
+  FOREIGN KEY(appointment_id) REFERENCES appointments(appointment_id)
+);
+
 CREATE SCHEMA IF NOT EXISTS rag;
 
 CREATE TABLE IF NOT EXISTS rag.patients (
@@ -102,6 +205,17 @@ CREATE TABLE IF NOT EXISTS rag.lab_summaries (
   test_name TEXT NOT NULL,
   summary TEXT NOT NULL,
   test_date TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS rag.patient_context_chunks (
+  chunk_id TEXT PRIMARY KEY,
+  patient_id TEXT NOT NULL REFERENCES rag.patients(patient_id),
+  source_type TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  chunk_text TEXT NOT NULL,
+  chunk_order INTEGER NOT NULL,
+  {patient_chunk_embedding_column},
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS rag.patient_chat_sessions (
@@ -192,6 +306,19 @@ CREATE TABLE IF NOT EXISTS rag.llm_runs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS rag.chat_outputs (
+  session_id TEXT PRIMARY KEY REFERENCES rag.patient_chat_sessions(session_id),
+  run_id TEXT NOT NULL,
+  urgency_band TEXT NOT NULL,
+  visit_category TEXT NOT NULL,
+  wait_p50_minutes INTEGER NOT NULL,
+  wait_p90_minutes INTEGER NOT NULL,
+  explanation TEXT NOT NULL,
+  disclaimers_json TEXT NOT NULL,
+  config_snapshot_hash TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS rag.prompt_versions (
   prompt_version TEXT PRIMARY KEY,
   model_key TEXT NOT NULL,
@@ -216,12 +343,22 @@ CREATE INDEX IF NOT EXISTS idx_rag_allergies_patient ON rag.allergies(patient_id
 CREATE INDEX IF NOT EXISTS idx_rag_problem_list_patient ON rag.problem_list(patient_id);
 CREATE INDEX IF NOT EXISTS idx_rag_notes_patient ON rag.clinical_notes(patient_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_rag_labs_patient ON rag.lab_summaries(patient_id, test_date DESC);
+CREATE INDEX IF NOT EXISTS idx_rag_patient_chunks_patient ON rag.patient_context_chunks(patient_id, source_type);
 CREATE INDEX IF NOT EXISTS idx_rag_sessions_patient ON rag.patient_chat_sessions(patient_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_rag_messages_session ON rag.patient_chat_messages(session_id, created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_rag_chunks_clinic_doc ON rag.clinic_document_chunks(clinic_id, document_id);
 CREATE INDEX IF NOT EXISTS idx_rag_faqs_clinic ON rag.clinic_faqs(clinic_id);
 CREATE INDEX IF NOT EXISTS idx_rag_rules_clinic ON rag.clinic_rules(clinic_id);
 CREATE INDEX IF NOT EXISTS idx_rag_hours_clinic ON rag.clinic_hours_services(clinic_id);
+{patient_chunk_vector_index_sql}
+CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
+CREATE INDEX IF NOT EXISTS idx_outputs_session_id ON outputs(session_id);
+CREATE INDEX IF NOT EXISTS idx_patients_email ON patients(email);
+CREATE INDEX IF NOT EXISTS idx_auth_otps_email ON auth_otps(email);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_patient_id ON auth_sessions(patient_id);
+CREATE INDEX IF NOT EXISTS idx_appointments_patient_id ON appointments(patient_id);
+CREATE INDEX IF NOT EXISTS idx_appointments_scheduled_for ON appointments(scheduled_for);
+CREATE INDEX IF NOT EXISTS idx_notification_logs_appointment_id ON notification_logs(appointment_id);
 """
 
 

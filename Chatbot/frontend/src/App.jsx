@@ -78,7 +78,7 @@ function defaultAccountSectionForUser(user) {
 }
 
 function toAppointmentDescription(results) {
-  const explanation = String(results?.explanation || '')
+  const explanation = String(results?.final_summary || results?.explanation || '')
     .replace(/\s+/g, ' ')
     .trim();
   const firstSentence = explanation.split(/(?<=[.!?])\s+/)[0] || explanation;
@@ -146,9 +146,9 @@ export default function App() {
       disclaimers.length > 0
         ? disclaimers
         : [
-            'This tool provides operational guidance only. It is not a medical diagnosis.',
+            'This assistant provides informational support only. It is not a medical diagnosis.',
             'If you think this is an emergency or severe, seek urgent in-person care or call local emergency services.',
-            'Wait-time estimates are not guaranteed and may change.',
+            'Medication and treatment decisions should be made with your clinician.',
           ],
     [disclaimers],
   );
@@ -477,7 +477,10 @@ export default function App() {
       const response = await chatTurn(sessionId, userText);
       setMessages((current) => [...current, { role: 'assistant', content: response.assistant_message }]);
       setDone(Boolean(response.done));
-      setProgress(response.progress || progress);
+      setProgress((current) => ({
+        ...current,
+        turn_count: current.turn_count + 1,
+      }));
     } finally {
       setLoading(false);
     }
@@ -491,16 +494,6 @@ export default function App() {
     setLoading(true);
     try {
       const response = await endChat(sessionId);
-      const isEmergencyResult =
-        String(response?.urgency_band || '').toLowerCase() === 'high' &&
-        String(response?.visit_category || '').toLowerCase() === 'urgent';
-
-      if (isEmergencyResult) {
-        setIsModalOpen(false);
-        handleReset();
-        return;
-      }
-
       setResults(response);
       setIsModalOpen(false);
     } finally {

@@ -42,11 +42,15 @@ class RagChatTurnIn(BaseModel):
     user_message: constr(min_length=1, max_length=2000)  # type: ignore
 
 
+class RagChatTurnProgress(BaseModel):
+    turn_count: int
+    max_turns: int
+
+
 class RagChatTurnOut(BaseModel):
     assistant_message: str
     done: bool
-    route: RouteTarget
-    trace_id: str | None = None
+    progress: RagChatTurnProgress
 
 
 class RagChatEndIn(BaseModel):
@@ -61,9 +65,13 @@ class RagSourceItem(BaseModel):
 
 class RagChatEndOut(BaseModel):
     session_id: str
-    ended: bool
-    final_summary: str | None = None
-    sources: list[RagSourceItem] = Field(default_factory=list)
+    urgency_band: Literal["low", "medium", "high"]
+    visit_category: str
+    wait_p50_minutes: int = Field(ge=0)
+    wait_p90_minutes: int = Field(ge=0)
+    explanation: str
+    disclaimers: list[str]
+    run_id: str
 
 
 class RagRetrieveDebugIn(BaseModel):

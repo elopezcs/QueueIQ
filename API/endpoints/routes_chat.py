@@ -4,6 +4,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from API.rag.db import fetch_all, rag_db_enabled
 from Chatbot.backend.app.agent.orchestrator import ChatOrchestrator
 from Chatbot.backend.app.config.loader import get_clinic_by_id
 from Chatbot.backend.app.models.schemas import ChatEndOut, ChatStartOut, ChatTurnOut
@@ -87,6 +88,35 @@ def _session_output_exists(session_id: str) -> bool:
         conn.close()
 
 
+def _resolve_clinic(clinic_id: str) -> dict[str, Any] | None:
+    clinic = get_clinic_by_id(clinic_id)
+    if clinic:
+        return clinic
+
+    if not rag_db_enabled():
+        return None
+
+    rows = fetch_all(
+        """
+        SELECT clinic_id, clinic_name, city
+        FROM rag.clinics
+        WHERE clinic_id = %s
+        LIMIT 1
+        """,
+        (clinic_id,),
+    )
+    if not rows:
+        return None
+    row = rows[0]
+    return {
+        "id": row["clinic_id"],
+        "name": row["clinic_name"],
+        "address_or_city": row.get("city") or "",
+        "hours": {},
+        "mock_capacity": {"servers_total": 3, "avg_service_minutes": 12},
+    }
+
+
 @router.post(
     "/chat/start",
     response_model=ChatStartOut,
@@ -106,7 +136,7 @@ async def chat_start(request: Request):
     if isinstance(clinic_id, JSONResponse):
         return clinic_id
 
-    clinic = get_clinic_by_id(clinic_id)
+    clinic = _resolve_clinic(clinic_id)
     if not clinic:
         return _error(404, "Clinic not found", "NOT_FOUND")
 
@@ -162,7 +192,7 @@ async def chat_turn(request: Request):
         if bool(session.get("done")) or _session_output_exists(session_id):
             return _error(409, "Session is already finalized", "SESSION_FINALIZED")
 
-        clinic = get_clinic_by_id(session["clinic_id"])
+        clinic = _resolve_clinic(session["clinic_id"])
         if not clinic:
             return _error(500, "Clinic config missing", "INTERNAL_SERVER_ERROR")
 
@@ -219,7 +249,7 @@ async def chat_end(request: Request):
         if _session_output_exists(session_id):
             return _error(409, "Session has already been finalized", "SESSION_FINALIZED")
 
-        clinic = get_clinic_by_id(session["clinic_id"])
+        clinic = _resolve_clinic(session["clinic_id"])
         if not clinic:
             return _error(500, "Clinic config missing", "INTERNAL_SERVER_ERROR")
 
