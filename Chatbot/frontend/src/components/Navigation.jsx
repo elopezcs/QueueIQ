@@ -5,6 +5,7 @@ function menuItemsForRole(role) {
   if (normalizedRole === 'staff') {
     return [
       { id: 'dashboard', label: 'Staff Dashboard' },
+      { id: 'traceability', label: 'Traceability' },
       { id: 'profile', label: 'Profile' },
       { id: 'logout', label: 'Logout' },
     ];
@@ -13,6 +14,7 @@ function menuItemsForRole(role) {
     return [
       { id: 'simulations', label: 'Simulations' },
       { id: 'add-member', label: 'Add Member' },
+      { id: 'traceability', label: 'Traceability' },
       { id: 'logout', label: 'Logout' },
     ];
   }
@@ -151,6 +153,10 @@ export default function Navigation({
     setIsUserMenuOpen(false);
     if (itemId === 'logout') {
       onLogout();
+      return;
+    }
+    if (itemId === 'traceability') {
+      setCurrentPage('traceability');
       return;
     }
     onNavigateToAccountSection(itemId);

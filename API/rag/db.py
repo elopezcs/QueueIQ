@@ -181,15 +181,6 @@ CREATE TABLE IF NOT EXISTS rag.allergies (
   active BOOLEAN NOT NULL DEFAULT TRUE
 );
 
-CREATE TABLE IF NOT EXISTS rag.problem_list (
-  problem_id TEXT PRIMARY KEY,
-  patient_id TEXT NOT NULL REFERENCES rag.patients(patient_id),
-  problem_name TEXT NOT NULL,
-  status TEXT NOT NULL,
-  onset_date DATE,
-  notes TEXT
-);
-
 CREATE TABLE IF NOT EXISTS rag.clinical_notes (
   note_id TEXT PRIMARY KEY,
   patient_id TEXT NOT NULL REFERENCES rag.patients(patient_id),
@@ -350,15 +341,6 @@ CREATE TABLE IF NOT EXISTS rag.chat_outputs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS rag.prompt_versions (
-  prompt_version TEXT PRIMARY KEY,
-  model_key TEXT NOT NULL,
-  system_template TEXT NOT NULL,
-  user_template TEXT NOT NULL,
-  active BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
 CREATE TABLE IF NOT EXISTS rag.model_configs (
   model_key TEXT PRIMARY KEY,
   provider TEXT NOT NULL,
@@ -367,6 +349,9 @@ CREATE TABLE IF NOT EXISTS rag.model_configs (
   is_active BOOLEAN NOT NULL DEFAULT FALSE,
   metadata_json JSONB NOT NULL DEFAULT '{{}}'::jsonb
 );
+
+DROP TABLE IF EXISTS rag.prompt_versions;
+DROP TABLE IF EXISTS rag.problem_list;
 
 ALTER TABLE rag.retrieval_traces
   ADD COLUMN IF NOT EXISTS turn_id TEXT;
@@ -434,7 +419,6 @@ END$$;
 CREATE INDEX IF NOT EXISTS idx_rag_encounters_patient_date ON rag.encounters(patient_id, encounter_date DESC);
 CREATE INDEX IF NOT EXISTS idx_rag_medications_patient ON rag.medications(patient_id);
 CREATE INDEX IF NOT EXISTS idx_rag_allergies_patient ON rag.allergies(patient_id);
-CREATE INDEX IF NOT EXISTS idx_rag_problem_list_patient ON rag.problem_list(patient_id);
 CREATE INDEX IF NOT EXISTS idx_rag_notes_patient ON rag.clinical_notes(patient_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_rag_labs_patient ON rag.lab_summaries(patient_id, test_date DESC);
 CREATE INDEX IF NOT EXISTS idx_rag_patient_chunks_patient ON rag.patient_context_chunks(patient_id, source_type);

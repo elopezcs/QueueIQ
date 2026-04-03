@@ -200,4 +200,52 @@ export async function endChat(sessionId) {
   });
 }
 
+export async function getRagAuditSessions({ patientId = '', limit = 50, offset = 0 } = {}) {
+  const queryParams = new URLSearchParams();
+  if (patientId) {
+    queryParams.set('patient_id', String(patientId));
+  }
+  queryParams.set('limit', String(limit));
+  queryParams.set('offset', String(offset));
+  return apiFetch(`/rag/audit/sessions?${queryParams.toString()}`, {
+    headers: { ...authHeaders() },
+  });
+}
+
+export async function getRagAuditSessionTurns(sessionId) {
+  return apiFetch(`/rag/audit/session/${encodeURIComponent(String(sessionId))}/turns`, {
+    headers: { ...authHeaders() },
+  });
+}
+
+export async function getRagAuditRuns({ patientId = '', sessionId = '', modelKey = '', limit = 100, offset = 0 } = {}) {
+  const queryParams = new URLSearchParams();
+  if (patientId) {
+    queryParams.set('patient_id', String(patientId));
+  }
+  if (sessionId) {
+    queryParams.set('session_id', String(sessionId));
+  }
+  if (modelKey) {
+    queryParams.set('model_key', String(modelKey));
+  }
+  queryParams.set('limit', String(limit));
+  queryParams.set('offset', String(offset));
+  return apiFetch(`/rag/audit/runs?${queryParams.toString()}`, {
+    headers: { ...authHeaders() },
+  });
+}
+
+export async function getRagAuditTimeline(sessionId) {
+  return apiFetch(`/rag/audit/session/${encodeURIComponent(String(sessionId))}/timeline`, {
+    headers: { ...authHeaders() },
+  });
+}
+
+export async function getRagTrace(traceId) {
+  return apiFetch(`/rag/trace/${encodeURIComponent(String(traceId))}`, {
+    headers: { ...authHeaders() },
+  });
+}
+
 

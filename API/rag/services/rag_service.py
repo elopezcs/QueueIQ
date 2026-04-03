@@ -28,49 +28,8 @@ class RagService:
     def __init__(self) -> None:
         self.db_ready, self.pgvector_enabled = init_rag_db()
         persist_model_registry()
-        self._ensure_prompt_versions()
         self.orchestrator = RagOrchestrator()
         self.intake_orchestrator = RagIntakeOrchestrator()
-
-    def _ensure_prompt_versions(self) -> None:
-        if not rag_db_enabled():
-            return
-        execute(
-            """
-            INSERT INTO rag.prompt_versions(prompt_version, model_key, system_template, user_template, active)
-            VALUES(%s,%s,%s,%s,%s)
-            ON CONFLICT (prompt_version) DO UPDATE
-              SET model_key=EXCLUDED.model_key,
-                  system_template=EXCLUDED.system_template,
-                  user_template=EXCLUDED.user_template,
-                  active=EXCLUDED.active
-            """,
-            (
-                "gemma_v1",
-                "gemma3_4b",
-                "Use retrieved context only. Return JSON.",
-                "Answer using patient and clinic context with safety fallback.",
-                True,
-            ),
-        )
-        execute(
-            """
-            INSERT INTO rag.prompt_versions(prompt_version, model_key, system_template, user_template, active)
-            VALUES(%s,%s,%s,%s,%s)
-            ON CONFLICT (prompt_version) DO UPDATE
-              SET model_key=EXCLUDED.model_key,
-                  system_template=EXCLUDED.system_template,
-                  user_template=EXCLUDED.user_template,
-                  active=EXCLUDED.active
-            """,
-            (
-                "qwen_v1",
-                "qwen2_5_7b_instruct",
-                "Use retrieved context only. Return strict JSON.",
-                "Answer using patient and clinic context with safety fallback.",
-                True,
-            ),
-        )
 
     def health(self) -> dict[str, Any]:
         return {
@@ -942,7 +901,6 @@ class RagService:
             execute("DELETE FROM rag.encounters WHERE patient_id=%s", (p_id,))
             execute("DELETE FROM rag.medications WHERE patient_id=%s", (p_id,))
             execute("DELETE FROM rag.allergies WHERE patient_id=%s", (p_id,))
-            execute("DELETE FROM rag.problem_list WHERE patient_id=%s", (p_id,))
             execute("DELETE FROM rag.lab_summaries WHERE patient_id=%s", (p_id,))
 
             encounter_id = f"enc_{p_id}_1"
@@ -967,13 +925,6 @@ class RagService:
                 VALUES(%s,%s,%s,%s,%s,%s)
                 """,
                 (f"alg_{p_id}_1", p_id, "Penicillin", "Rash", "moderate", True),
-            )
-            execute(
-                """
-                INSERT INTO rag.problem_list(problem_id, patient_id, problem_name, status, onset_date, notes)
-                VALUES(%s,%s,%s,%s,%s,%s)
-                """,
-                (f"prob_{p_id}_1", p_id, "Hypertension", "active", "2022-05-01", "Controlled with medication."),
             )
             execute(
                 """

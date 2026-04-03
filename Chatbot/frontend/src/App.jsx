@@ -30,6 +30,7 @@ import ContactPage from './pages/ContactPage.jsx';
 import AccountPage from './pages/AccountPage.jsx';
 import PrivacyPage from './pages/PrivacyPage.jsx';
 import TeamPage from './pages/TeamPage.jsx';
+import TraceabilityPage from './pages/TraceabilityPage.jsx';
 
 const EMPTY_APPOINTMENTS = {
   current: [],
@@ -320,7 +321,7 @@ export default function App() {
       return;
     }
 
-    if (currentPage !== 'account') {
+    if (currentPage !== 'account' && currentPage !== 'traceability') {
       setCurrentPage('account');
     }
 
@@ -730,6 +731,7 @@ export default function App() {
       {currentPage === 'team' ? <TeamPage /> : null}
       {currentPage === 'privacy' ? <PrivacyPage /> : null}
       {currentPage === 'contact' ? <ContactPage /> : null}
+      {currentPage === 'traceability' ? <TraceabilityPage currentUser={currentUser} /> : null}
     </div>
   );
 }

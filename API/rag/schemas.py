@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, constr
@@ -89,8 +90,8 @@ class RagAuditSessionItem(BaseModel):
     session_id: str
     patient_id: str
     clinic_id: str
-    started_at: str
-    ended_at: str | None = None
+    started_at: datetime
+    ended_at: datetime | None = None
     turn_count: int = 0
     run_count: int = 0
 
@@ -105,8 +106,8 @@ class RagAuditTurnItem(BaseModel):
     assistant_message: str | None = None
     trace_id: str | None = None
     run_id: str | None = None
-    started_at: str
-    completed_at: str | None = None
+    started_at: datetime
+    completed_at: datetime | None = None
     latency_ms: int | None = None
 
 
@@ -122,7 +123,7 @@ class RagAuditRunItem(BaseModel):
     status: str
     error_type: str | None = None
     error_message: str | None = None
-    created_at: str
+    created_at: datetime
 
 
 class RagAuditTimelineOut(BaseModel):
