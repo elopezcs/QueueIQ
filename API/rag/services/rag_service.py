@@ -1,13 +1,15 @@
 import logging
 import json
+import hashlib
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from API.rag.db import execute, fetch_all, init_rag_db, pgvector_enabled, rag_db_enabled, to_vector_literal
-from API.rag.model_adapters.registry import db_models_or_default, embed_text, persist_model_registry
+from API.rag.db import execute, execute_fetch_one, fetch_all, init_rag_db, pgvector_enabled, rag_db_enabled, to_vector_literal
+from API.rag.model_adapters.registry import active_model, db_models_or_default, embed_text, persist_model_registry
 from API.rag.orchestrators.intake_orchestrator import RagIntakeOrchestrator
-from API.rag.orchestrators.rag_orchestrator import RagOrchestrator
+from API.rag.orchestrators.rag_orchestrator import RagOrchestrator, route_query
 from Chatbot.backend.app.config.loader import get_clinic_by_id, load_clinics_config
 
 
@@ -16,6 +18,10 @@ def _now_iso() -> str:
 
 
 logger = logging.getLogger("queueiq.rag")
+
+
+def _hash_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 class RagService:
@@ -136,6 +142,183 @@ class RagService:
         execute(
             "INSERT INTO messages(session_id, role, content, ts) VALUES(%s,%s,%s,%s)",
             (session_id, role, content, _now_iso()),
+        )
+
+    def _insert_rag_message(self, *, session_id: str, role: str, content: str) -> int:
+        row = execute_fetch_one(
+            """
+            INSERT INTO rag.patient_chat_messages(session_id, role, content, created_at)
+            VALUES(%s,%s,%s,%s)
+            RETURNING id
+            """,
+            (session_id, role, content, _now_iso()),
+        )
+        if not row or "id" not in row:
+            raise RuntimeError("Failed to persist RAG chat message")
+        return int(row["id"])
+
+    def _next_turn_index(self, *, session_id: str) -> int:
+        rows = fetch_all(
+            "SELECT COALESCE(MAX(turn_index), 0) AS max_turn_index FROM rag.chat_turns WHERE session_id=%s",
+            (session_id,),
+        )
+        return int(rows[0]["max_turn_index"]) + 1
+
+    def _create_turn(
+        self,
+        *,
+        session_id: str,
+        patient_id: str,
+        clinic_id: str,
+        route: str,
+    ) -> tuple[str, int]:
+        turn_id = f"turn_{secrets.token_hex(12)}"
+        turn_index = self._next_turn_index(session_id=session_id)
+        execute(
+            """
+            INSERT INTO rag.chat_turns(turn_id, session_id, patient_id, clinic_id, turn_index, route, status, started_at)
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (turn_id, session_id, patient_id, clinic_id, turn_index, route, "in_progress", _now_iso()),
+        )
+        return turn_id, turn_index
+
+    def _save_retrieval_trace(
+        self,
+        *,
+        turn_id: str,
+        session_id: str,
+        patient_id: str,
+        clinic_id: str,
+        route: str,
+        query_text: str,
+        patient_context_text: str | None,
+    ) -> str:
+        trace_id = f"trace_{secrets.token_hex(10)}"
+        context_preview = json.dumps(
+            {
+                "patient_context_preview": (patient_context_text or "")[:1000],
+                "clinic_id": clinic_id,
+            },
+            ensure_ascii=False,
+        )
+        execute(
+            """
+            INSERT INTO rag.retrieval_traces(
+                trace_id, turn_id, session_id, patient_id, clinic_id, route, query_text, context_preview,
+                retrieval_strategy, source_count_patient, source_count_clinic
+            )
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                trace_id,
+                turn_id,
+                session_id,
+                patient_id,
+                clinic_id,
+                route,
+                query_text,
+                context_preview,
+                "hybrid",
+                1 if patient_context_text else 0,
+                1,
+            ),
+        )
+        return trace_id
+
+    def _save_llm_run(
+        self,
+        *,
+        run_id: str,
+        turn_id: str | None,
+        trace_id: str | None,
+        session_id: str,
+        prompt_preview: str,
+        response_preview: str,
+        status: str,
+        error_type: str | None = None,
+        error_message: str | None = None,
+        latency_ms: int | None = None,
+    ) -> None:
+        spec = active_model()
+        execute(
+            """
+            INSERT INTO rag.llm_runs(
+                run_id, turn_id, trace_id, session_id, model_key, model_name, provider, prompt_version, prompt_preview,
+                response_preview, prompt_hash, response_hash, status, error_type, error_message, latency_ms
+            )
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (run_id) DO UPDATE
+              SET turn_id=EXCLUDED.turn_id,
+                  trace_id=EXCLUDED.trace_id,
+                  session_id=EXCLUDED.session_id,
+                  model_key=EXCLUDED.model_key,
+                  model_name=EXCLUDED.model_name,
+                  provider=EXCLUDED.provider,
+                  prompt_version=EXCLUDED.prompt_version,
+                  prompt_preview=EXCLUDED.prompt_preview,
+                  response_preview=EXCLUDED.response_preview,
+                  prompt_hash=EXCLUDED.prompt_hash,
+                  response_hash=EXCLUDED.response_hash,
+                  status=EXCLUDED.status,
+                  error_type=EXCLUDED.error_type,
+                  error_message=EXCLUDED.error_message,
+                  latency_ms=EXCLUDED.latency_ms
+            """,
+            (
+                run_id,
+                turn_id,
+                trace_id,
+                session_id,
+                spec.key,
+                spec.model_name,
+                spec.provider,
+                f"{spec.prompt_variant}_v1",
+                prompt_preview[:1000],
+                response_preview[:1000],
+                _hash_text(prompt_preview),
+                _hash_text(response_preview),
+                status,
+                error_type,
+                error_message,
+                latency_ms,
+            ),
+        )
+
+    def _complete_turn(
+        self,
+        *,
+        turn_id: str,
+        user_message_id: int,
+        assistant_message_id: int,
+        trace_id: str,
+        run_id: str,
+        status: str,
+        started_monotonic: float,
+    ) -> None:
+        elapsed_ms = int((time.monotonic() - started_monotonic) * 1000)
+        execute(
+            """
+            UPDATE rag.chat_turns
+            SET user_message_id=%s,
+                assistant_message_id=%s,
+                trace_id=%s,
+                run_id=%s,
+                status=%s,
+                completed_at=%s,
+                latency_ms=%s
+            WHERE turn_id=%s
+            """,
+            (
+                user_message_id,
+                assistant_message_id,
+                trace_id,
+                run_id,
+                status,
+                _now_iso(),
+                elapsed_ms,
+                turn_id,
+            ),
         )
 
     def _mark_public_session_done(self, *, session_id: str) -> None:
@@ -273,10 +456,7 @@ class RagService:
             clinic=clinic,
             patient_context=patient_context,
         )
-        execute(
-            "INSERT INTO rag.patient_chat_messages(session_id, role, content, created_at) VALUES(%s,%s,%s,%s)",
-            (session_id, "assistant", first, _now_iso()),
-        )
+        self._insert_rag_message(session_id=session_id, role="assistant", content=first)
         self._insert_public_message(session_id=session_id, role="assistant", content=first)
         return {"session_id": session_id, "assistant_message": first, "disclaimers": disclaimers}
 
@@ -288,6 +468,7 @@ class RagService:
         return rows[0] if rows else None
 
     def turn(self, *, patient_id: str, session_id: str, user_message: str) -> dict[str, Any]:
+        started_monotonic = time.monotonic()
         session = self._session(session_id)
         if not session:
             raise ValueError("SESSION_NOT_FOUND")
@@ -300,32 +481,76 @@ class RagService:
         if not clinic:
             raise ValueError("CLINIC_NOT_FOUND")
 
-        execute(
-            "INSERT INTO rag.patient_chat_messages(session_id, role, content, created_at) VALUES(%s,%s,%s,%s)",
-            (session_id, "user", user_message, _now_iso()),
+        route = route_query(user_message)
+        turn_id, _ = self._create_turn(
+            session_id=session_id,
+            patient_id=patient_id,
+            clinic_id=str(session["clinic_id"]),
+            route=route,
         )
+        user_message_id = self._insert_rag_message(session_id=session_id, role="user", content=user_message)
         self._insert_public_message(session_id=session_id, role="user", content=user_message)
         transcript = self._transcript(session_id)
         patient_context = self._patient_context_text(
             patient_id=patient_id,
             query=user_message,
         )
-        assistant_message, done, progress = self.intake_orchestrator.next_turn(
-            clinic=clinic,
-            transcript=transcript,
-            patient_context=patient_context,
+        trace_id = self._save_retrieval_trace(
+            turn_id=turn_id,
+            session_id=session_id,
+            patient_id=patient_id,
+            clinic_id=str(session["clinic_id"]),
+            route=route,
+            query_text=user_message,
+            patient_context_text=patient_context,
         )
+        status = "ok"
+        error_type = None
+        error_message = None
+        try:
+            assistant_message, done, progress = self.intake_orchestrator.next_turn(
+                clinic=clinic,
+                transcript=transcript,
+                patient_context=patient_context,
+            )
+        except Exception as exc:
+            status = "llm_error"
+            error_type = exc.__class__.__name__
+            error_message = str(exc)
+            assistant_message = "I encountered a temporary processing issue. Please try again."
+            done = False
+            progress = {"turn_count": 0, "max_turns": self.intake_orchestrator.max_turns}
         logger.info(
             "RAG intake turn processed: session_id=%s patient_id=%s done=%s",
             session_id,
             patient_id,
             done,
         )
-        execute(
-            "INSERT INTO rag.patient_chat_messages(session_id, role, content, created_at) VALUES(%s,%s,%s,%s)",
-            (session_id, "assistant", assistant_message, _now_iso()),
-        )
+        assistant_message_id = self._insert_rag_message(session_id=session_id, role="assistant", content=assistant_message)
         self._insert_public_message(session_id=session_id, role="assistant", content=assistant_message)
+        run_id = f"run_{secrets.token_hex(10)}"
+        elapsed_ms = int((time.monotonic() - started_monotonic) * 1000)
+        self._save_llm_run(
+            run_id=run_id,
+            turn_id=turn_id,
+            trace_id=trace_id,
+            session_id=session_id,
+            prompt_preview=user_message,
+            response_preview=assistant_message,
+            status=status,
+            error_type=error_type,
+            error_message=error_message,
+            latency_ms=elapsed_ms,
+        )
+        self._complete_turn(
+            turn_id=turn_id,
+            user_message_id=user_message_id,
+            assistant_message_id=assistant_message_id,
+            trace_id=trace_id,
+            run_id=run_id,
+            status=status,
+            started_monotonic=started_monotonic,
+        )
         if done:
             execute(
                 "UPDATE rag.patient_chat_sessions SET ended_at=%s WHERE session_id=%s",
@@ -393,6 +618,16 @@ class RagService:
             "UPDATE rag.patient_chat_sessions SET ended_at=%s WHERE session_id=%s",
             (_now_iso(), session_id),
         )
+        self._save_llm_run(
+            run_id=str(outputs["run_id"]),
+            turn_id=None,
+            trace_id=None,
+            session_id=session_id,
+            prompt_preview="\n".join(user_messages[-3:]) or "session_finalize",
+            response_preview=str(outputs.get("explanation") or ""),
+            status="ok",
+            latency_ms=None,
+        )
         self._upsert_public_output(session_id=session_id, outputs=outputs)
         self._mark_public_session_done(session_id=session_id)
         logger.info("RAG intake session finalized: session_id=%s patient_id=%s run_id=%s", session_id, patient_id, outputs["run_id"])
@@ -432,6 +667,152 @@ class RagService:
             (trace_id,),
         )
         return rows[0] if rows else None
+
+    def list_audit_sessions(
+        self,
+        *,
+        requester_patient_id: str,
+        requester_role: str,
+        patient_id: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        effective_patient_id = patient_id if requester_role in {"manager", "staff"} else requester_patient_id
+        rows = fetch_all(
+            """
+            SELECT s.session_id,
+                   s.patient_id,
+                   s.clinic_id,
+                   s.started_at,
+                   s.ended_at,
+                   COUNT(DISTINCT t.turn_id)::INT AS turn_count,
+                   COUNT(DISTINCT r.run_id)::INT AS run_count
+            FROM rag.patient_chat_sessions s
+            LEFT JOIN rag.chat_turns t ON t.session_id = s.session_id
+            LEFT JOIN rag.llm_runs r ON r.session_id = s.session_id
+            WHERE (%s IS NULL OR s.patient_id = %s)
+            GROUP BY s.session_id, s.patient_id, s.clinic_id, s.started_at, s.ended_at
+            ORDER BY s.started_at DESC
+            LIMIT %s OFFSET %s
+            """,
+            (effective_patient_id, effective_patient_id, int(limit), int(offset)),
+        )
+        return rows
+
+    def list_audit_turns(
+        self,
+        *,
+        requester_patient_id: str,
+        requester_role: str,
+        session_id: str,
+    ) -> list[dict[str, Any]]:
+        rows = fetch_all(
+            """
+            SELECT t.turn_id,
+                   t.session_id,
+                   t.turn_index,
+                   t.route,
+                   t.status,
+                   um.content AS user_message,
+                   am.content AS assistant_message,
+                   t.trace_id,
+                   t.run_id,
+                   t.started_at,
+                   t.completed_at,
+                   t.latency_ms
+            FROM rag.chat_turns t
+            JOIN rag.patient_chat_sessions s ON s.session_id = t.session_id
+            LEFT JOIN rag.patient_chat_messages um ON um.id = t.user_message_id
+            LEFT JOIN rag.patient_chat_messages am ON am.id = t.assistant_message_id
+            WHERE t.session_id = %s
+              AND (%s IN ('manager', 'staff') OR s.patient_id = %s)
+            ORDER BY t.turn_index ASC
+            """,
+            (session_id, requester_role, requester_patient_id),
+        )
+        return rows
+
+    def list_audit_runs(
+        self,
+        *,
+        requester_patient_id: str,
+        requester_role: str,
+        patient_id: str | None = None,
+        session_id: str | None = None,
+        model_key: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        effective_patient_id = patient_id if requester_role in {"manager", "staff"} else requester_patient_id
+        rows = fetch_all(
+            """
+            SELECT r.run_id,
+                   r.turn_id,
+                   r.trace_id,
+                   r.session_id,
+                   r.model_key,
+                   r.model_name,
+                   r.provider,
+                   r.prompt_version,
+                   r.status,
+                   r.error_type,
+                   r.error_message,
+                   r.created_at
+            FROM rag.llm_runs r
+            JOIN rag.patient_chat_sessions s ON s.session_id = r.session_id
+            WHERE (%s IS NULL OR s.patient_id = %s)
+              AND (%s IS NULL OR r.session_id = %s)
+              AND (%s IS NULL OR r.model_key = %s)
+            ORDER BY r.created_at DESC
+            LIMIT %s OFFSET %s
+            """,
+            (
+                effective_patient_id,
+                effective_patient_id,
+                session_id,
+                session_id,
+                model_key,
+                model_key,
+                int(limit),
+                int(offset),
+            ),
+        )
+        return rows
+
+    def session_audit_timeline(
+        self,
+        *,
+        requester_patient_id: str,
+        requester_role: str,
+        session_id: str,
+    ) -> dict[str, Any] | None:
+        session_rows = fetch_all(
+            """
+            SELECT session_id, patient_id, clinic_id, started_at, ended_at
+            FROM rag.patient_chat_sessions
+            WHERE session_id=%s
+              AND (%s IN ('manager', 'staff') OR patient_id = %s)
+            LIMIT 1
+            """,
+            (session_id, requester_role, requester_patient_id),
+        )
+        if not session_rows:
+            return None
+        return {
+            "session": session_rows[0],
+            "turns": self.list_audit_turns(
+                requester_patient_id=requester_patient_id,
+                requester_role=requester_role,
+                session_id=session_id,
+            ),
+            "llm_runs": self.list_audit_runs(
+                requester_patient_id=requester_patient_id,
+                requester_role=requester_role,
+                session_id=session_id,
+                limit=200,
+                offset=0,
+            ),
+        }
 
     def seed(self) -> dict[str, Any]:
         if not rag_db_enabled():

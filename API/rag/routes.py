@@ -4,6 +4,10 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from API.rag.schemas import (
+    RagAuditRunItem,
+    RagAuditSessionItem,
+    RagAuditTimelineOut,
+    RagAuditTurnItem,
     RagChatEndOut,
     RagChatStartOut,
     RagChatTurnOut,
@@ -195,4 +199,86 @@ def rag_trace_detail(trace_id: str, request: Request):
     if data.get("patient_id") != patient["patient_id"] and str(patient.get("role") or "").lower() != "manager":
         return _error(403, "Trace access denied", "FORBIDDEN")
     return data
+
+
+@router.get("/audit/sessions", response_model=list[RagAuditSessionItem])
+def rag_audit_sessions(
+    request: Request,
+    patient_id: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    patient, auth_error = _require_auth_patient(request)
+    if auth_error:
+        return auth_error
+    role = str(patient.get("role") or "").lower()
+    return [
+        RagAuditSessionItem(**row)
+        for row in get_rag_service().list_audit_sessions(
+            requester_patient_id=patient["patient_id"],
+            requester_role=role,
+            patient_id=patient_id,
+            limit=max(1, min(limit, 200)),
+            offset=max(0, offset),
+        )
+    ]
+
+
+@router.get("/audit/session/{session_id}/turns", response_model=list[RagAuditTurnItem])
+def rag_audit_turns(session_id: str, request: Request):
+    patient, auth_error = _require_auth_patient(request)
+    if auth_error:
+        return auth_error
+    role = str(patient.get("role") or "").lower()
+    rows = get_rag_service().list_audit_turns(
+        requester_patient_id=patient["patient_id"],
+        requester_role=role,
+        session_id=session_id,
+    )
+    return [RagAuditTurnItem(**row) for row in rows]
+
+
+@router.get("/audit/runs", response_model=list[RagAuditRunItem])
+def rag_audit_runs(
+    request: Request,
+    patient_id: str | None = None,
+    session_id: str | None = None,
+    model_key: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+):
+    patient, auth_error = _require_auth_patient(request)
+    if auth_error:
+        return auth_error
+    role = str(patient.get("role") or "").lower()
+    rows = get_rag_service().list_audit_runs(
+        requester_patient_id=patient["patient_id"],
+        requester_role=role,
+        patient_id=patient_id,
+        session_id=session_id,
+        model_key=model_key,
+        limit=max(1, min(limit, 500)),
+        offset=max(0, offset),
+    )
+    return [RagAuditRunItem(**row) for row in rows]
+
+
+@router.get("/audit/session/{session_id}/timeline", response_model=RagAuditTimelineOut)
+def rag_audit_timeline(session_id: str, request: Request):
+    patient, auth_error = _require_auth_patient(request)
+    if auth_error:
+        return auth_error
+    role = str(patient.get("role") or "").lower()
+    data = get_rag_service().session_audit_timeline(
+        requester_patient_id=patient["patient_id"],
+        requester_role=role,
+        session_id=session_id,
+    )
+    if not data:
+        return _error(404, "Session not found", "NOT_FOUND")
+    return RagAuditTimelineOut(
+        session=data["session"],
+        turns=[RagAuditTurnItem(**row) for row in data.get("turns", [])],
+        llm_runs=[RagAuditRunItem(**row) for row in data.get("llm_runs", [])],
+    )
 

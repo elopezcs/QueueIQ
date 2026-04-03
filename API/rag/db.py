@@ -234,6 +234,23 @@ CREATE TABLE IF NOT EXISTS rag.patient_chat_messages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS rag.chat_turns (
+  turn_id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES rag.patient_chat_sessions(session_id),
+  patient_id TEXT NOT NULL REFERENCES rag.patients(patient_id),
+  clinic_id TEXT NOT NULL REFERENCES rag.clinics(clinic_id),
+  turn_index INTEGER NOT NULL,
+  route TEXT NOT NULL,
+  status TEXT NOT NULL,
+  user_message_id BIGINT REFERENCES rag.patient_chat_messages(id),
+  assistant_message_id BIGINT REFERENCES rag.patient_chat_messages(id),
+  trace_id TEXT,
+  run_id TEXT,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  completed_at TIMESTAMPTZ,
+  latency_ms INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS rag.clinics (
   clinic_id TEXT PRIMARY KEY,
   clinic_name TEXT NOT NULL,
@@ -285,24 +302,38 @@ CREATE TABLE IF NOT EXISTS rag.clinic_hours_services (
 
 CREATE TABLE IF NOT EXISTS rag.retrieval_traces (
   trace_id TEXT PRIMARY KEY,
+  turn_id TEXT,
   session_id TEXT NOT NULL,
   patient_id TEXT NOT NULL,
   clinic_id TEXT NOT NULL,
   route TEXT NOT NULL,
   query_text TEXT NOT NULL,
   context_preview TEXT NOT NULL,
+  retrieval_strategy TEXT NOT NULL DEFAULT 'hybrid',
+  source_count_patient INTEGER NOT NULL DEFAULT 0,
+  source_count_clinic INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS rag.llm_runs (
   run_id TEXT PRIMARY KEY,
+  turn_id TEXT,
   trace_id TEXT REFERENCES rag.retrieval_traces(trace_id),
   session_id TEXT NOT NULL,
   model_key TEXT NOT NULL,
+  model_name TEXT,
   provider TEXT NOT NULL,
   prompt_version TEXT NOT NULL,
   prompt_preview TEXT NOT NULL,
   response_preview TEXT NOT NULL,
+  prompt_hash TEXT,
+  response_hash TEXT,
+  status TEXT NOT NULL DEFAULT 'ok',
+  error_type TEXT,
+  error_message TEXT,
+  latency_ms INTEGER,
+  input_tokens INTEGER,
+  output_tokens INTEGER,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -337,6 +368,69 @@ CREATE TABLE IF NOT EXISTS rag.model_configs (
   metadata_json JSONB NOT NULL DEFAULT '{{}}'::jsonb
 );
 
+ALTER TABLE rag.retrieval_traces
+  ADD COLUMN IF NOT EXISTS turn_id TEXT;
+ALTER TABLE rag.retrieval_traces
+  ADD COLUMN IF NOT EXISTS retrieval_strategy TEXT NOT NULL DEFAULT 'hybrid';
+ALTER TABLE rag.retrieval_traces
+  ADD COLUMN IF NOT EXISTS source_count_patient INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE rag.retrieval_traces
+  ADD COLUMN IF NOT EXISTS source_count_clinic INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE rag.llm_runs
+  ADD COLUMN IF NOT EXISTS turn_id TEXT;
+ALTER TABLE rag.llm_runs
+  ADD COLUMN IF NOT EXISTS model_name TEXT;
+ALTER TABLE rag.llm_runs
+  ADD COLUMN IF NOT EXISTS prompt_hash TEXT;
+ALTER TABLE rag.llm_runs
+  ADD COLUMN IF NOT EXISTS response_hash TEXT;
+ALTER TABLE rag.llm_runs
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ok';
+ALTER TABLE rag.llm_runs
+  ADD COLUMN IF NOT EXISTS error_type TEXT;
+ALTER TABLE rag.llm_runs
+  ADD COLUMN IF NOT EXISTS error_message TEXT;
+ALTER TABLE rag.llm_runs
+  ADD COLUMN IF NOT EXISTS latency_ms INTEGER;
+ALTER TABLE rag.llm_runs
+  ADD COLUMN IF NOT EXISTS input_tokens INTEGER;
+ALTER TABLE rag.llm_runs
+  ADD COLUMN IF NOT EXISTS output_tokens INTEGER;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_rag_chat_turns_trace') THEN
+    ALTER TABLE rag.chat_turns
+      ADD CONSTRAINT fk_rag_chat_turns_trace
+      FOREIGN KEY (trace_id) REFERENCES rag.retrieval_traces(trace_id);
+  END IF;
+END$$;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_rag_chat_turns_run') THEN
+    ALTER TABLE rag.chat_turns
+      ADD CONSTRAINT fk_rag_chat_turns_run
+      FOREIGN KEY (run_id) REFERENCES rag.llm_runs(run_id);
+  END IF;
+END$$;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_rag_retrieval_turn') THEN
+    ALTER TABLE rag.retrieval_traces
+      ADD CONSTRAINT fk_rag_retrieval_turn
+      FOREIGN KEY (turn_id) REFERENCES rag.chat_turns(turn_id);
+  END IF;
+END$$;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_rag_llm_turn') THEN
+    ALTER TABLE rag.llm_runs
+      ADD CONSTRAINT fk_rag_llm_turn
+      FOREIGN KEY (turn_id) REFERENCES rag.chat_turns(turn_id);
+  END IF;
+END$$;
+
 CREATE INDEX IF NOT EXISTS idx_rag_encounters_patient_date ON rag.encounters(patient_id, encounter_date DESC);
 CREATE INDEX IF NOT EXISTS idx_rag_medications_patient ON rag.medications(patient_id);
 CREATE INDEX IF NOT EXISTS idx_rag_allergies_patient ON rag.allergies(patient_id);
@@ -346,6 +440,13 @@ CREATE INDEX IF NOT EXISTS idx_rag_labs_patient ON rag.lab_summaries(patient_id,
 CREATE INDEX IF NOT EXISTS idx_rag_patient_chunks_patient ON rag.patient_context_chunks(patient_id, source_type);
 CREATE INDEX IF NOT EXISTS idx_rag_sessions_patient ON rag.patient_chat_sessions(patient_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_rag_messages_session ON rag.patient_chat_messages(session_id, created_at ASC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rag_turns_session_turn_index ON rag.chat_turns(session_id, turn_index);
+CREATE INDEX IF NOT EXISTS idx_rag_turns_patient_started ON rag.chat_turns(patient_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rag_turns_session_started ON rag.chat_turns(session_id, started_at ASC);
+CREATE INDEX IF NOT EXISTS idx_rag_traces_turn ON rag.retrieval_traces(turn_id);
+CREATE INDEX IF NOT EXISTS idx_rag_llm_runs_turn ON rag.llm_runs(turn_id);
+CREATE INDEX IF NOT EXISTS idx_rag_llm_runs_session_created ON rag.llm_runs(session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rag_llm_runs_model_created ON rag.llm_runs(model_key, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_rag_chunks_clinic_doc ON rag.clinic_document_chunks(clinic_id, document_id);
 CREATE INDEX IF NOT EXISTS idx_rag_faqs_clinic ON rag.clinic_faqs(clinic_id);
 CREATE INDEX IF NOT EXISTS idx_rag_rules_clinic ON rag.clinic_rules(clinic_id);
@@ -389,6 +490,15 @@ def fetch_all(query: str, params: tuple | list | None = None) -> list[dict]:
             cur.execute(query, params or ())
             rows = cur.fetchall()
             return [dict(row) for row in rows]
+
+
+def execute_fetch_one(query: str, params: tuple | list | None = None) -> dict | None:
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(query, params or ())
+            row = cur.fetchone()
+            conn.commit()
+            return dict(row) if row else None
 
 
 def execute(query: str, params: tuple | list | None = None) -> None:
