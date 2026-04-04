@@ -29,6 +29,20 @@ function roleCanFilterPatient(role) {
   return normalized === 'manager' || normalized === 'staff';
 }
 
+function urgencyLabelClass(value) {
+  const normalized = String(value || '').toLowerCase();
+  if (normalized === 'high') {
+    return 'high';
+  }
+  if (normalized === 'medium') {
+    return 'medium';
+  }
+  if (normalized === 'low') {
+    return 'low';
+  }
+  return 'unknown';
+}
+
 export default function TraceabilityPage({ currentUser }) {
   const role = String(currentUser?.role || '').toLowerCase();
   const canFilterPatient = roleCanFilterPatient(role);
@@ -43,7 +57,7 @@ export default function TraceabilityPage({ currentUser }) {
   const [sessionsError, setSessionsError] = useState('');
 
   const [selectedSessionId, setSelectedSessionId] = useState('');
-  const [timeline, setTimeline] = useState({ session: null, turns: [], llm_runs: [] });
+  const [timeline, setTimeline] = useState({ session: null, turns: [], llm_runs: [], session_output: null });
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [timelineError, setTimelineError] = useState('');
 
@@ -91,7 +105,7 @@ export default function TraceabilityPage({ currentUser }) {
 
   useEffect(() => {
     if (!selectedSessionId) {
-      setTimeline({ session: null, turns: [], llm_runs: [] });
+      setTimeline({ session: null, turns: [], llm_runs: [], session_output: null });
       return;
     }
     let cancelled = false;
@@ -105,12 +119,13 @@ export default function TraceabilityPage({ currentUser }) {
             session: data?.session || null,
             turns: Array.isArray(data?.turns) ? data.turns : [],
             llm_runs: Array.isArray(data?.llm_runs) ? data.llm_runs : [],
+            session_output: data?.session_output || null,
           });
         }
       } catch (error) {
         if (!cancelled) {
           setTimelineError(error.message || 'Unable to load timeline.');
-          setTimeline({ session: null, turns: [], llm_runs: [] });
+          setTimeline({ session: null, turns: [], llm_runs: [], session_output: null });
         }
       } finally {
         if (!cancelled) {
@@ -285,6 +300,18 @@ export default function TraceabilityPage({ currentUser }) {
                   <div className="muted small">clinic: {item.clinic_id}</div>
                   <div className="muted small">turns: {item.turn_count} | runs: {item.run_count}</div>
                   <div className="muted small">started: {formatDateTime(item.started_at)}</div>
+                  {item.urgency_band ? (
+                    <div className="traceability-session-summary-row">
+                      <span className={`traceability-urgency-pill ${urgencyLabelClass(item.urgency_band)}`}>
+                        {item.urgency_band} urgency
+                      </span>
+                      <span className="muted small">
+                        {item.visit_category || 'general'} | p50 {item.wait_p50_minutes ?? '-'} min | p90 {item.wait_p90_minutes ?? '-'} min
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="muted small">summary: not finalized yet</div>
+                  )}
                 </button>
               );
             })}
@@ -309,6 +336,32 @@ export default function TraceabilityPage({ currentUser }) {
               <div className="traceability-session-meta muted small">
                 patient: {timeline.session.patient_id} | clinic: {timeline.session.clinic_id} | started: {formatDateTime(timeline.session.started_at)}
               </div>
+
+              <h4>Intake summary</h4>
+              {!timeline.session_output ? <p className="muted">No finalized intake summary for this session yet.</p> : null}
+              {timeline.session_output ? (
+                <div className="traceability-turn-card">
+                  <div className="traceability-turn-topline">
+                    <strong>{timeline.session_output.urgency_band} urgency</strong>
+                    <span className="muted small">
+                      category: {timeline.session_output.visit_category} | run: {timeline.session_output.run_id}
+                    </span>
+                  </div>
+                  <div className="muted small">
+                    wait p50: {timeline.session_output.wait_p50_minutes} min | wait p90: {timeline.session_output.wait_p90_minutes} min | created:{' '}
+                    {formatDateTime(timeline.session_output.created_at)}
+                  </div>
+                  <div className="traceability-turn-message">
+                    <strong>Explanation:</strong> {timeline.session_output.explanation || '-'}
+                  </div>
+                  <div className="traceability-turn-message">
+                    <strong>Disclaimers:</strong>{' '}
+                    {Array.isArray(timeline.session_output.disclaimers_json)
+                      ? timeline.session_output.disclaimers_json.join(' | ')
+                      : String(timeline.session_output.disclaimers_json || '-')}
+                  </div>
+                </div>
+              ) : null}
 
               <h4>Turns</h4>
               {timeline.turns.length === 0 ? <p className="muted">No turns recorded.</p> : null}

@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from API.rag.schemas import (
     RagAuditRunItem,
     RagAuditSessionItem,
+    RagAuditSessionOutputItem,
     RagAuditTimelineOut,
     RagAuditTurnItem,
     RagChatEndOut,
@@ -280,5 +281,6 @@ def rag_audit_timeline(session_id: str, request: Request):
         session=data["session"],
         turns=[RagAuditTurnItem(**row) for row in data.get("turns", [])],
         llm_runs=[RagAuditRunItem(**row) for row in data.get("llm_runs", [])],
+        session_output=RagAuditSessionOutputItem(**data["session_output"]) if data.get("session_output") else None,
     )
 

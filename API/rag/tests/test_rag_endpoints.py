@@ -84,6 +84,11 @@ class _FakeService:
                 "ended_at": None,
                 "turn_count": 2,
                 "run_count": 2,
+                "urgency_band": "medium",
+                "visit_category": "general",
+                "wait_p50_minutes": 10,
+                "wait_p90_minutes": 20,
+                "output_created_at": "2026-01-01T00:00:02+00:00",
             }
         ]
 
@@ -152,6 +157,18 @@ class _FakeService:
                 requester_role=requester_role,
                 session_id=session_id,
             ),
+            "session_output": {
+                "session_id": session_id,
+                "run_id": "run_1",
+                "urgency_band": "medium",
+                "visit_category": "general",
+                "wait_p50_minutes": 10,
+                "wait_p90_minutes": 20,
+                "explanation": "Operational summary.",
+                "disclaimers_json": ["not diagnosis"],
+                "config_snapshot_hash": "cfg_1",
+                "created_at": "2026-01-01T00:00:02+00:00",
+            },
         }
 
 
@@ -216,6 +233,7 @@ def test_rag_audit_endpoints(monkeypatch):
     sessions = client.get("/rag/audit/sessions", headers=headers)
     assert sessions.status_code == 200
     assert sessions.json()[0]["session_id"] == "sess_test"
+    assert sessions.json()[0]["urgency_band"] == "medium"
 
     turns = client.get("/rag/audit/session/sess_test/turns", headers=headers)
     assert turns.status_code == 200
@@ -231,4 +249,6 @@ def test_rag_audit_endpoints(monkeypatch):
     assert body["session"]["session_id"] == "sess_test"
     assert len(body["turns"]) == 1
     assert len(body["llm_runs"]) == 1
+    assert body["session_output"]["session_id"] == "sess_test"
+    assert body["session_output"]["urgency_band"] == "medium"
 

@@ -94,6 +94,11 @@ class RagAuditSessionItem(BaseModel):
     ended_at: datetime | None = None
     turn_count: int = 0
     run_count: int = 0
+    urgency_band: Literal["low", "medium", "high"] | None = None
+    visit_category: str | None = None
+    wait_p50_minutes: int | None = Field(default=None, ge=0)
+    wait_p90_minutes: int | None = Field(default=None, ge=0)
+    output_created_at: datetime | None = None
 
 
 class RagAuditTurnItem(BaseModel):
@@ -126,8 +131,22 @@ class RagAuditRunItem(BaseModel):
     created_at: datetime
 
 
+class RagAuditSessionOutputItem(BaseModel):
+    session_id: str
+    run_id: str
+    urgency_band: Literal["low", "medium", "high"]
+    visit_category: str
+    wait_p50_minutes: int = Field(ge=0)
+    wait_p90_minutes: int = Field(ge=0)
+    explanation: str
+    disclaimers_json: Any
+    config_snapshot_hash: str
+    created_at: datetime
+
+
 class RagAuditTimelineOut(BaseModel):
     session: dict[str, Any]
     turns: list[RagAuditTurnItem]
     llm_runs: list[RagAuditRunItem]
+    session_output: RagAuditSessionOutputItem | None = None
 

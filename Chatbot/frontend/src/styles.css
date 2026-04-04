@@ -3886,6 +3886,46 @@ body {
   color: #173a53;
 }
 
+.traceability-session-summary-row {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.traceability-urgency-pill {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.traceability-urgency-pill.low {
+  color: #0b5f3f;
+  background: #def6ea;
+  border: 1px solid #9fd8be;
+}
+
+.traceability-urgency-pill.medium {
+  color: #7a4f00;
+  background: #fff3d8;
+  border: 1px solid #f1d28d;
+}
+
+.traceability-urgency-pill.high {
+  color: #8e1f1f;
+  background: #ffe4e4;
+  border: 1px solid #efb0b0;
+}
+
+.traceability-urgency-pill.unknown {
+  color: #39566b;
+  background: #edf4f8;
+  border: 1px solid #c8dbe8;
+}
+
 .traceability-session-meta {
   margin: 10px 0 14px;
 }
@@ -3918,6 +3958,7 @@ body {
 }
 
 .traceability-trace-preview {
+  white-space: pre-wrap;
   margin-top: 10px;
   max-height: 240px;
   overflow: scroll;

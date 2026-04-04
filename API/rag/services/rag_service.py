@@ -645,12 +645,27 @@ class RagService:
                    s.started_at,
                    s.ended_at,
                    COUNT(DISTINCT t.turn_id)::INT AS turn_count,
-                   COUNT(DISTINCT r.run_id)::INT AS run_count
+                   COUNT(DISTINCT r.run_id)::INT AS run_count,
+                   o.urgency_band,
+                   o.visit_category,
+                   o.wait_p50_minutes,
+                   o.wait_p90_minutes,
+                   o.created_at AS output_created_at
             FROM rag.patient_chat_sessions s
             LEFT JOIN rag.chat_turns t ON t.session_id = s.session_id
             LEFT JOIN rag.llm_runs r ON r.session_id = s.session_id
+            LEFT JOIN rag.chat_outputs o ON o.session_id = s.session_id
             WHERE (%s IS NULL OR s.patient_id = %s)
-            GROUP BY s.session_id, s.patient_id, s.clinic_id, s.started_at, s.ended_at
+            GROUP BY s.session_id,
+                     s.patient_id,
+                     s.clinic_id,
+                     s.started_at,
+                     s.ended_at,
+                     o.urgency_band,
+                     o.visit_category,
+                     o.wait_p50_minutes,
+                     o.wait_p90_minutes,
+                     o.created_at
             ORDER BY s.started_at DESC
             LIMIT %s OFFSET %s
             """,
@@ -757,6 +772,24 @@ class RagService:
         )
         if not session_rows:
             return None
+        output_rows = fetch_all(
+            """
+            SELECT session_id,
+                   run_id,
+                   urgency_band,
+                   visit_category,
+                   wait_p50_minutes,
+                   wait_p90_minutes,
+                   explanation,
+                   disclaimers_json,
+                   config_snapshot_hash,
+                   created_at
+            FROM rag.chat_outputs
+            WHERE session_id=%s
+            LIMIT 1
+            """,
+            (session_id,),
+        )
         return {
             "session": session_rows[0],
             "turns": self.list_audit_turns(
@@ -771,6 +804,7 @@ class RagService:
                 limit=200,
                 offset=0,
             ),
+            "session_output": output_rows[0] if output_rows else None,
         }
 
     def seed(self) -> dict[str, Any]:
