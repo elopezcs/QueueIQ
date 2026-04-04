@@ -127,7 +127,8 @@ class RagIntakeOrchestrator:
         )
         msg = (
             f"Welcome. I can help collect intake details for {clinic.get('name')}."
-            "\n\nI will ask a few short questions for operational queue planning. "
+            "\n\nThis chat is for pre-intake support before your visit. "
+            "I will ask a few short questions for operational queue planning. "
             "This is not a medical diagnosis."
             f"{personalized_note}"
             "\n\nWhat brings you in today, in one or two sentences?"

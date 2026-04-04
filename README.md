@@ -413,3 +413,17 @@ Run tests (including new RAG tests):
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
+### Bulk Patient Ingestion ETL
+
+Use the ETL runner to ingest large patient histories into `patients` + `rag.*` tables:
+
+```powershell
+.\.venv\Scripts\python.exe "Chatbot\backend\scripts\patient_ingest_etl.py" --input "API\rag\examples\patient_ingest_payload.sample.json"
+```
+
+Useful flags:
+- `--dry-run`: validate end-to-end and rollback writes
+- `--patient-id <id>`: ingest only one patient from a batch file
+- `--skip-chunks`: skip `rag.patient_context_chunks` rebuild
+- `--continue-on-error`: process remaining records after a failure
+

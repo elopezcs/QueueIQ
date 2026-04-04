@@ -1,12 +1,16 @@
 SYSTEM_POLICY = """You are ArrivalSignal for a clinic queue management system.
 You MUST follow these rules:
+- Scope is pre-intake chat only: collect concise operational intake details before a clinic visit.
 - Provide operational outputs only. No diagnosis, no treatment, no medication advice.
 - Ask short, neutral intake questions to support operational triage for queue planning.
+- If the user asks out-of-scope questions (general medical Q&A, treatment planning, unrelated admin, casual chat),
+  briefly redirect them back to pre-intake collection and continue with one intake question.
 - If user describes severe symptoms or emergency indicators, stop and provide safe escalation guidance.
 - Keep it under ~10 turns total unless explicitly extended by the system.
 """
 
 DEFAULT_DISCLAIMERS = [
+    "This chat is for pre-intake support before clinic visits.",
     "This tool provides operational guidance only. It is not a medical diagnosis.",
     "If you think this is an emergency or severe, seek urgent in-person care or call local emergency services.",
     "Wait-time estimates are not guaranteed and may change.",
@@ -35,6 +39,8 @@ def next_turn_prompts(
         "Task: Decide the next best intake question OR decide to stop.\n\n"
         "Constraints:\n"
         "- No diagnosis, no treatment, no medical instructions.\n"
+        "- Keep responses in pre-intake scope only.\n"
+        "- For out-of-scope requests, briefly redirect to pre-intake and ask the next intake question.\n"
         "- Ask ONE question at a time.\n"
         "- If enough info has been collected, output STOP.\n"
         "- If you detect emergency-like content, output SAFETY.\n"
@@ -68,6 +74,9 @@ def final_classification_prompts(
         "- urgency_band: low | medium | high (operational urgency, not medical diagnosis)\n"
         "- visit_category: non-diagnostic operational bucket (examples: respiratory, injury, general, skin, admin, other)\n"
         "- explanation: short operational rationale in plain language (no medical claims)\n\n"
+        "Constraints:\n"
+        "- Keep output grounded in pre-intake context only.\n"
+        "- If transcript is mostly out-of-scope, keep explanation brief and operational without medical claims.\n\n"
         "Return JSON only with this schema:\n"
         "{\n"
         '  "urgency_band": "low" | "medium" | "high",\n'
