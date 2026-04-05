@@ -354,12 +354,7 @@ export default function TraceabilityPage({ currentUser }) {
                   <div className="traceability-turn-message">
                     <strong>Explanation:</strong> {timeline.session_output.explanation || '-'}
                   </div>
-                  <div className="traceability-turn-message">
-                    <strong>Disclaimers:</strong>{' '}
-                    {Array.isArray(timeline.session_output.disclaimers_json)
-                      ? timeline.session_output.disclaimers_json.join(' | ')
-                      : String(timeline.session_output.disclaimers_json || '-')}
-                  </div>
+
                 </div>
               ) : null}
 
