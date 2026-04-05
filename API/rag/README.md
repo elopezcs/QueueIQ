@@ -6,8 +6,6 @@ This guide walks you through setting up the local environment required to run th
 
 ## 📋 Prerequisites
 
-Before starting, make sure you have the following installed:
-
 - Docker Desktop (running)
 - PostgreSQL (for `psql` CLI tools)
 - pgAdmin (optional but recommended)
@@ -19,15 +17,15 @@ Before starting, make sure you have the following installed:
 
 ### 1. Add PostgreSQL to System Path
 
-Ensure the following directory is added to your system environment variables:
-
+```bash
 C:\Program Files\PostgreSQL\18\bin
+```
 
-This allows you to use `psql` from the command line.
+Optional:
 
-Optionally, ensure `psql.exe` is directly accessible:
-
+```bash
 C:\Program Files\PostgreSQL\18\bin\psql.exe
+```
 
 ---
 
@@ -35,26 +33,33 @@ C:\Program Files\PostgreSQL\18\bin\psql.exe
 
 ### 2. Stop Existing Containers
 
-From the project root:
-
+```bash
 docker compose down
+```
 
 ---
 
 ### 3. Pull pgvector Image
 
+```bash
 docker pull pgvector/pgvector:pg18-trixie
+```
 
 ---
 
 ### 4. Remove Existing Container (if any)
 
+```bash
 docker rm -f postgres-vector
+```
 
 ---
 
 ### 5. Run PostgreSQL with pgvector
 
+#### Windows (CMD)
+
+```bash
 docker run -d ^
   --name postgres-vector ^
   -e POSTGRES_USER=postgres ^
@@ -62,33 +67,45 @@ docker run -d ^
   -e POSTGRES_DB=queueiq ^
   -p 5433:5432 ^
   pgvector/pgvector:pg18-trixie
+```
 
-This will start a PostgreSQL instance with pgvector enabled on port 5433.
+#### macOS / Linux
+
+```bash
+docker run -d \
+  --name postgres-vector \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=<YOUR_DB_PASSWORD> \
+  -e POSTGRES_DB=queueiq \
+  -p 5433:5432 \
+  pgvector/pgvector:pg18-trixie
+```
 
 ---
 
 ## 🔌 Connect to Database (CLI)
 
+```bash
 psql -U postgres -h localhost -p 5433 -d queueiq
+```
 
 ---
 
 ## 🧠 Enable pgvector Extension
 
-Run the following inside `psql`:
-
+```sql
 CREATE EXTENSION vector;
 
 SELECT * 
 FROM pg_available_extensions 
 WHERE name = 'vector';
+```
 
 ---
 
 ## ✅ Verification
 
-Run the following queries to confirm everything is working:
-
+```sql
 SELECT version();
 
 SELECT * 
@@ -109,97 +126,100 @@ SELECT *
 FROM items 
 ORDER BY embedding <-> '[3,1,2]' 
 LIMIT 5;
-
-If this runs successfully, pgvector is correctly installed.
+```
 
 ---
 
 ## 🖥️ pgAdmin Setup (Optional)
 
-Register a new server in pgAdmin:
-
-- Name: pgvector-docker
-- Host: localhost
-- Port: 5433
-- Username: postgres
-- Password: <YOUR_DB_PASSWORD>
+- Name: `pgvector-docker`
+- Host: `localhost`
+- Port: `5433`
+- Username: `postgres`
+- Password: `<YOUR_DB_PASSWORD>`
 
 ---
 
 ## 🤖 Install and Configure Ollama
 
-Ollama is used to run local LLMs for the chatbot.
+### Install Models
 
-### 1. Install Models
-
+```bash
 ollama pull gemma3:4b
 ollama pull qwen2.5:7b
+```
 
 ---
 
-### 2. Verify Ollama is Running
+### Verify Ollama
 
-You can test it with:
-
+```bash
 ollama run gemma3:4b
+```
 
 ---
 
 ## 🚀 Next Steps
 
-Once everything is installed:
+### Configure `.env`
 
-1. Ensure your `.env` file points to the correct database:
-
+```bash
 DATABASE_URL=postgresql://postgres:<YOUR_DB_PASSWORD>@localhost:5433/queueiq
+```
 
-2. Start your backend:
+### Start Backend
 
+```bash
 docker compose up --build
+```
 
-3. Access the chatbot API (typically):
+### Access API
 
+```bash
 http://localhost:8000
+```
 
 ---
 
 ## 🧩 Troubleshooting
 
-### PostgreSQL Connection Issues
+### Connection Refused
 
-If you see:
-
+```bash
 connection refused localhost:5432
+```
 
-Make sure:
-- You are using port 5433, not 5432
-- Docker container is running:
-  docker ps
+Check:
+- Use port `5433`
+- Container is running:
+
+```bash
+docker ps
+```
 
 ---
 
-### Docker Issues
+### Restart Docker Cleanly
 
-To restart cleanly:
-
+```bash
 docker compose down -v
 docker compose up --build
+```
 
 ---
 
 ### Ollama Not Responding
 
-Make sure Ollama is running locally and accessible:
-
+```bash
 http://localhost:11434
+```
 
 ---
 
 ## 📌 Notes
 
-- The system uses:
-  - pgvector for semantic retrieval
-  - PostgreSQL for structured data
-  - Ollama for local LLM inference
-- Ensure Docker Desktop is running before starting the system
-- Avoid using localhost inside containers; use service names in Docker Compose if needed
+- Uses pgvector for semantic retrieval
+- PostgreSQL for structured data
+- Ollama for local LLM inference
+- Ensure Docker Desktop is running
+- Avoid using localhost inside containers
