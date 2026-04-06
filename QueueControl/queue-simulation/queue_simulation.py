@@ -380,15 +380,22 @@ class QueueSimulationBackend:
 		self.db_manager = DatabaseManager()
 		self.db_manager.init_db()
 
-		self.clinic_names = self.db_manager.fetch_clinics()["clinic_name"].tolist()
+		self.clinics_df = self.db_manager.fetch_clinics().copy()
+		self.clinic_names = self.clinics_df["clinic_name"].tolist()
+		self.clinic_id_by_name = dict(zip(self.clinics_df["clinic_name"], self.clinics_df["clinic_id"]))
 		self.sim_config = {
 			"num_doctors": 2,
 			"sim_speed": 2.0,
 			"use_rush_hour_predictor": True,
-			"manual_rush_hour_probability": 50,
+			"manual_rush_hour_probability": 0,
+			"arrival_base_probability": 0.05,
+			"arrival_surge_probability_scale": 0.55,
+			"queue_pause_threshold": 500,
+			"queue_resume_threshold": 400,
 			"doctors_per_clinic": {clinic_name: 2 for clinic_name in self.clinic_names},
 		}
 		self.doctors_free_at = {clinic_name: [datetime.now()] * 2 for clinic_name in self.clinic_names}
+		self.arrivals_paused_for_capacity = False
 
 		script_dir = os.path.dirname(os.path.abspath(__file__))
 		self.model_path = os.path.abspath(
@@ -397,11 +404,26 @@ class QueueSimulationBackend:
 		self.model_metrics_path = os.path.abspath(
 			os.path.join(script_dir, "..", "models", "rush_hour_predictor_metrics.json")
 		)
+		self.wait_time_model_path = os.path.abspath(
+			os.path.join(script_dir, "..", "models", "wait_time_predictor_model.joblib")
+		)
+		self.wait_time_metrics_path = os.path.abspath(
+			os.path.join(script_dir, "..", "models", "wait_time_predictor_metrics.json")
+		)
 		self.training_script_path = os.path.abspath(
 			os.path.join(script_dir, "..", "model-training", "rush_hour_predictor_model.py")
 		)
-		self.rush_hour_predictor_model = joblib.load(self.model_path)
+		self.wait_time_training_script_path = os.path.abspath(
+			os.path.join(script_dir, "..", "model-training", "wait_time_predictor_model.py")
+		)
+		self.rush_hour_predictor_model = self.load_rush_hour_model()
 		self.model_metrics = self.load_model_metrics()
+		self.wait_time_model = self.load_wait_time_model()
+		self.wait_time_metrics = self.load_wait_time_metrics()
+		self.rush_hour_model_mtime = self.get_artifact_mtime(self.model_path)
+		self.rush_hour_metrics_mtime = self.get_artifact_mtime(self.model_metrics_path)
+		self.wait_time_model_mtime = self.get_artifact_mtime(self.wait_time_model_path)
+		self.wait_time_metrics_mtime = self.get_artifact_mtime(self.wait_time_metrics_path)
 
 		self._simulation_thread: threading.Thread | None = None
 		self._simulation_lock = threading.Lock()
@@ -416,17 +438,93 @@ class QueueSimulationBackend:
 		module = importlib.util.module_from_spec(spec)
 		spec.loader.exec_module(module)
 		module.train_model()
-		self.rush_hour_predictor_model = joblib.load(self.model_path)
+		self.rush_hour_predictor_model = self.load_rush_hour_model()
 		self.model_metrics = self.load_model_metrics()
+		self.rush_hour_model_mtime = self.get_artifact_mtime(self.model_path)
+		self.rush_hour_metrics_mtime = self.get_artifact_mtime(self.model_metrics_path)
+
+	def retrain_wait_time_model(self) -> None:
+		spec = importlib.util.spec_from_file_location(
+			"wait_time_predictor_model", self.wait_time_training_script_path
+		)
+		if spec is None or spec.loader is None:
+			raise ImportError(f"Unable to load training script from {self.wait_time_training_script_path}")
+
+		module = importlib.util.module_from_spec(spec)
+		spec.loader.exec_module(module)
+		module.train_model()
+		self.wait_time_model = self.load_wait_time_model()
+		self.wait_time_metrics = self.load_wait_time_metrics()
+		self.wait_time_model_mtime = self.get_artifact_mtime(self.wait_time_model_path)
+		self.wait_time_metrics_mtime = self.get_artifact_mtime(self.wait_time_metrics_path)
+
+	@staticmethod
+	def get_artifact_mtime(path: str) -> float | None:
+		if not os.path.exists(path):
+			return None
+		return os.path.getmtime(path)
+
+	def load_rush_hour_model(self):
+		if not os.path.exists(self.model_path):
+			return None
+		return joblib.load(self.model_path)
 
 	def load_model_metrics(self) -> dict[str, object]:
+		if self.rush_hour_predictor_model is None:
+			return {}
+
 		if not os.path.exists(self.model_metrics_path):
 			return self.estimate_model_metrics()
 
 		with open(self.model_metrics_path, "r", encoding="utf-8") as metrics_file:
 			return json.load(metrics_file)
 
+	def load_wait_time_model(self) -> dict[str, object] | None:
+		if not os.path.exists(self.wait_time_model_path):
+			return None
+		return joblib.load(self.wait_time_model_path)
+
+	def load_wait_time_metrics(self) -> dict[str, object]:
+		if not os.path.exists(self.wait_time_metrics_path):
+			return {}
+
+		with open(self.wait_time_metrics_path, "r", encoding="utf-8") as metrics_file:
+			return json.load(metrics_file)
+
+	def refresh_wait_time_artifacts_if_needed(self) -> None:
+		current_model_mtime = self.get_artifact_mtime(self.wait_time_model_path)
+		current_metrics_mtime = self.get_artifact_mtime(self.wait_time_metrics_path)
+
+		model_changed = current_model_mtime != self.wait_time_model_mtime
+		metrics_changed = current_metrics_mtime != self.wait_time_metrics_mtime
+
+		if model_changed:
+			self.wait_time_model = self.load_wait_time_model()
+			self.wait_time_model_mtime = current_model_mtime
+
+		if metrics_changed or (model_changed and current_metrics_mtime is not None):
+			self.wait_time_metrics = self.load_wait_time_metrics()
+			self.wait_time_metrics_mtime = current_metrics_mtime
+
+	def refresh_rush_hour_artifacts_if_needed(self) -> None:
+		current_model_mtime = self.get_artifact_mtime(self.model_path)
+		current_metrics_mtime = self.get_artifact_mtime(self.model_metrics_path)
+
+		model_changed = current_model_mtime != self.rush_hour_model_mtime
+		metrics_changed = current_metrics_mtime != self.rush_hour_metrics_mtime
+
+		if model_changed:
+			self.rush_hour_predictor_model = self.load_rush_hour_model()
+			self.rush_hour_model_mtime = current_model_mtime
+
+		if metrics_changed or (model_changed and current_metrics_mtime is not None):
+			self.model_metrics = self.load_model_metrics()
+			self.rush_hour_metrics_mtime = current_metrics_mtime
+
 	def estimate_model_metrics(self) -> dict[str, object]:
+		if self.rush_hour_predictor_model is None:
+			return {}
+
 		try:
 			training_df = self.db_manager.fetch_training_data("clinic_historical_data")
 		except Exception:
@@ -502,7 +600,11 @@ class QueueSimulationBackend:
 		self,
 		queue_df: pd.DataFrame | None = None,
 		now: datetime | None = None,
-	) -> float:
+	) -> float | None:
+		self.refresh_rush_hour_artifacts_if_needed()
+		if self.rush_hour_predictor_model is None:
+			return None
+
 		df = self.prepare_queue_df(self.db_manager.fetch_queue()) if queue_df is None else queue_df
 		current_time = datetime.now() if now is None else now
 
@@ -542,7 +644,11 @@ class QueueSimulationBackend:
 		if not self.sim_config["use_rush_hour_predictor"]:
 			return float(self.sim_config["manual_rush_hour_probability"]) / 100.0
 
-		return self.get_model_surge_probability(queue_df=queue_df, now=now)
+		model_probability = self.get_model_surge_probability(queue_df=queue_df, now=now)
+		if model_probability is None:
+			return float(self.sim_config["manual_rush_hour_probability"]) / 100.0
+
+		return model_probability
 
 	def get_completed_patient_logs(self, clinic_name: str) -> pd.DataFrame:
 		activity_df = self.prepare_queue_df(self.db_manager.fetch_queue_activity())
@@ -563,6 +669,35 @@ class QueueSimulationBackend:
 		queue_df: pd.DataFrame | None = None,
 		now: datetime | None = None,
 	) -> list[tuple[str, str, str, str]]:
+		self.refresh_rush_hour_artifacts_if_needed()
+		if self.rush_hour_predictor_model is None:
+			return [
+				(
+					"Model accuracy",
+					"Unavailable",
+					"Train rush_hour_predictor_model to enable learned rush-hour accuracy reporting.",
+					"water",
+				),
+				(
+					"ROC-AUC",
+					"Unavailable",
+					"Train rush_hour_predictor_model to enable separation-quality reporting.",
+					"peach",
+				),
+				(
+					"Prediction confidence",
+					"Unavailable",
+					"Rush-hour model confidence will appear here after the model artifact is created.",
+					"air",
+				),
+				(
+					"Last retrained",
+					"Unavailable",
+					"No saved rush-hour model artifact is currently available.",
+					"",
+				),
+			]
+
 		metrics = self.model_metrics or {}
 		accuracy = metrics.get("accuracy")
 		roc_auc = metrics.get("roc_auc")
@@ -652,6 +787,13 @@ class QueueSimulationBackend:
 			queue_growth_rate = waiting_now - waiting_one_hour_ago
 
 		growth_prefix = "+" if queue_growth_rate > 0 else ""
+		arrival_status_value = "Paused" if self.arrivals_paused_for_capacity else "Active"
+		arrival_status_caption = (
+			f"New simulated arrivals are paused until the unseen queue drops to {int(self.sim_config['queue_resume_threshold'])}."
+			if self.arrivals_paused_for_capacity
+			else f"Simulated arrivals will pause automatically if unseen patients reach {int(self.sim_config['queue_pause_threshold'])}."
+		)
+		arrival_status_accent = "peach" if self.arrivals_paused_for_capacity else "water"
 		return [
 			(
 				"Doctor utilization",
@@ -671,13 +813,19 @@ class QueueSimulationBackend:
 				"Patients marked as seen during the last hour.",
 				"air",
 			),
+			(
+				"Arrival throttle",
+				arrival_status_value,
+				arrival_status_caption,
+				arrival_status_accent,
+			),
 		]
 
 	def get_manager_forecasts(self, clinic_name: str) -> list[tuple[str, str, str, str]]:
 		now = datetime.now()
 		queue_df = self.prepare_queue_df(self.db_manager.fetch_queue())
 		surge_probability = self.get_surge_probability(queue_df=queue_df, now=now)
-		arrival_probability_per_tick = 0.05 + (surge_probability * 0.55)
+		arrival_probability_per_tick = self.get_arrival_probability_per_tick(surge_probability)
 		ticks_per_hour = 3600.0 / max(float(self.sim_config["sim_speed"]), 0.5)
 		expected_arrivals_per_hour = arrival_probability_per_tick * ticks_per_hour
 
@@ -709,6 +857,117 @@ class QueueSimulationBackend:
 			),
 		]
 
+	def get_arrival_probability_per_tick(self, surge_probability: float) -> float:
+		base_probability = float(self.sim_config.get("arrival_base_probability", 0.05))
+		surge_scale = float(self.sim_config.get("arrival_surge_probability_scale", 0.55))
+		return base_probability + (surge_probability * surge_scale)
+
+	def predict_wait_time_quantiles(
+		self,
+		clinic_name: str,
+		queue_df: pd.DataFrame,
+		now: datetime | None = None,
+	) -> tuple[float, float] | None:
+		self.refresh_wait_time_artifacts_if_needed()
+
+		if self.wait_time_model is None:
+			return None
+
+		clinic_id = self.clinic_id_by_name.get(clinic_name)
+		if not clinic_id:
+			return None
+
+		current_time = datetime.now() if now is None else now
+		clinic_df = self.prepare_queue_df(queue_df)
+		recent_df = self.create_empty_queue_df()
+		if not clinic_df.empty:
+			recent_df = clinic_df[clinic_df["arrival_time"] >= (current_time - timedelta(hours=1))]
+
+		avg_wait_last_hour = 0.0
+		if not recent_df.empty:
+			avg_wait_last_hour = float(
+				((current_time - recent_df["arrival_time"]).dt.total_seconds() / 60.0).mean()
+			)
+		elif not clinic_df.empty:
+			avg_wait_last_hour = float(
+				((current_time - clinic_df["arrival_time"]).dt.total_seconds() / 60.0).mean()
+			)
+
+		feature_row = pd.DataFrame([
+			{
+				"clinic_id": clinic_id,
+				"is_weekend": int(current_time.weekday() >= 5),
+				"day_sin": np.sin(2 * np.pi * current_time.weekday() / 7.0),
+				"day_cos": np.cos(2 * np.pi * current_time.weekday() / 7.0),
+				"hour_sin": np.sin(2 * np.pi * current_time.hour / 24.0),
+				"hour_cos": np.cos(2 * np.pi * current_time.hour / 24.0),
+				"queue_length_at_arrival": len(clinic_df),
+				"arrivals_last_1_hour": float(len(recent_df)),
+				"avg_wait_last_1_hour": avg_wait_last_hour,
+			}
+		])
+
+		encoded_row = pd.get_dummies(feature_row, columns=["clinic_id"], prefix="clinic")
+		encoded_row = encoded_row.reindex(
+			columns=list(self.wait_time_model.get("feature_columns", [])),
+			fill_value=0.0,
+		)
+
+		predicted_p50 = max(0.0, float(self.wait_time_model["model"].predict(encoded_row)[0]))
+		clinic_uplifts = self.wait_time_model.get("clinic_p90_uplift_minutes", {})
+		global_uplift = float(self.wait_time_model.get("global_p90_uplift_minutes", 0.0))
+		predicted_p90 = max(
+			predicted_p50,
+			predicted_p50 + float(clinic_uplifts.get(clinic_id, global_uplift)),
+		)
+
+		baseline_doctors = max(1, int(self.wait_time_metrics.get("historical_num_doctors", 2) or 2))
+		current_doctors = max(1, int(self.sim_config["doctors_per_clinic"].get(clinic_name, baseline_doctors)))
+		staffing_factor = baseline_doctors / current_doctors
+
+		predicted_p50 *= staffing_factor
+		predicted_p90 = max(predicted_p50, predicted_p90 * staffing_factor)
+		return predicted_p50, predicted_p90
+
+	def get_wait_time_metrics(
+		self,
+		clinic_name: str,
+		queue_df: pd.DataFrame,
+		now: datetime | None = None,
+	) -> list[tuple[str, str, str, str]]:
+		prediction = self.predict_wait_time_quantiles(clinic_name, queue_df, now=now)
+		if prediction is None:
+			return [
+				(
+					"Estimated wait P50",
+					"Unavailable",
+					"Train wait_time_predictor_model to enable learned wait-time estimates.",
+					"water",
+				),
+				(
+					"Estimated wait P90",
+					"Unavailable",
+					"Train wait_time_predictor_model to enable learned wait-time estimates.",
+					"peach",
+				),
+			]
+
+		predicted_p50, predicted_p90 = prediction
+		return [
+			(
+				"Estimated wait P50",
+				format_minutes_label(predicted_p50),
+				"Median expected wait for a new arrival based on the current queue and historical patterns.",
+				"water",
+			),
+			(
+				"Estimated wait P90",
+				format_minutes_label(predicted_p90),
+				"Higher-end wait estimate to communicate a cautious arrival-time expectation.",
+				"peach",
+			),
+		]
+
 	def mark_patient_no_show(self, record_id: int) -> None:
 		self.db_manager.delete_queue_record(record_id)
 
@@ -724,6 +983,15 @@ class QueueSimulationBackend:
 			self._simulation_thread = threading.Thread(target=self.run_simulation, daemon=True)
 			self._simulation_thread.start()
 
+	def should_pause_arrivals(self, waiting_count: int) -> bool:
+		pause_threshold = int(self.sim_config["queue_pause_threshold"])
+		resume_threshold = int(self.sim_config["queue_resume_threshold"])
+
+		if self.arrivals_paused_for_capacity:
+			return waiting_count > resume_threshold
+
+		return waiting_count >= pause_threshold
+
 	def run_simulation(self) -> None:
 		logger.info("--- BACKGROUND SIMULATION STARTED ---")
 
@@ -734,6 +1002,21 @@ class QueueSimulationBackend:
 				df = self.prepare_queue_df(self.db_manager.fetch_queue())
 				clinic_queue_map = self.build_clinic_queue_map(df)
 				now = datetime.now()
+				waiting_count = len(df)
+				pause_arrivals = self.should_pause_arrivals(waiting_count)
+
+				if pause_arrivals and not self.arrivals_paused_for_capacity:
+					logger.warning(
+						"Pausing simulated arrivals because the waiting queue reached %s patients.",
+						waiting_count,
+					)
+				elif not pause_arrivals and self.arrivals_paused_for_capacity:
+					logger.info(
+						"Resuming simulated arrivals because the waiting queue dropped to %s patients.",
+						waiting_count,
+					)
+
+				self.arrivals_paused_for_capacity = pause_arrivals
 
 				for clinic_name in self.clinic_names:
 					current_doctors = int(self.sim_config["doctors_per_clinic"].get(clinic_name, 1))
@@ -763,22 +1046,23 @@ class QueueSimulationBackend:
 							waiting_patients = waiting_patients.iloc[1:]
 
 				surge_prob = self.get_surge_probability(queue_df=df, now=now)
-				current_prob = 0.05 + (surge_prob * 0.55)
+				current_prob = self.get_arrival_probability_per_tick(surge_prob)
 
-				for clinic_name in self.clinic_names:
-					if random.random() < current_prob:
-						new_id = random.randint(1000, 9999)
-						priority = random.choices([1, 2, 3, 4, 5], weights=[5, 10, 50, 25, 10])[0]
-						self.db_manager.insert_patient(
-							clinic_name,
-							new_id,
-							now,
-							priority,
-							self.get_duration(priority),
-						)
-						logger.info(
-							f"Walk-in [{now.strftime('%H:%M:%S')}] {clinic_name}: Patient {new_id} added"
-						)
+				if not self.arrivals_paused_for_capacity:
+					for clinic_name in self.clinic_names:
+						if random.random() < current_prob:
+							new_id = random.randint(1000, 9999)
+							priority = random.choices([1, 2, 3, 4, 5], weights=[5, 10, 50, 25, 10])[0]
+							self.db_manager.insert_patient(
+								clinic_name,
+								new_id,
+								now,
+								priority,
+								self.get_duration(priority),
+							)
+							logger.info(
+								f"Walk-in [{now.strftime('%H:%M:%S')}] {clinic_name}: Patient {new_id} added"
+							)
 
 				time.sleep(current_speed)
 
@@ -803,9 +1087,6 @@ def setup_dashboard_page(page_title: str) -> None:
 def load_backend_or_stop() -> QueueSimulationBackend:
 	try:
 		backend = get_backend()
-	except FileNotFoundError as exc:
-		st.error(f"**Rush Hour Predictor model not found:** {exc}")
-		st.stop()
 	except Exception as exc:
 		st.error(f"**Failed to initialize the simulator backend:** {exc}")
 		st.stop()
@@ -834,6 +1115,14 @@ def format_average_wait(df_waiting: pd.DataFrame) -> str:
 	total_minutes = max(0, int(round(avg_minutes)))
 	hours, minutes = divmod(total_minutes, 60)
 
+	if hours:
+		return f"{hours}h {minutes}m"
+	return f"{minutes}m"
+
+
+def format_minutes_label(total_minutes: float) -> str:
+	clamped_minutes = max(0, int(round(total_minutes)))
+	hours, minutes = divmod(clamped_minutes, 60)
 	if hours:
 		return f"{hours}h {minutes}m"
 	return f"{minutes}m"
@@ -1106,6 +1395,13 @@ def render_metric_card_row(metrics: list[tuple[str, str, str, str]]) -> None:
 			render_metric_card(title, value, caption, accent=accent)
 
 
+def should_render_surge_monitor(backend: QueueSimulationBackend) -> bool:
+	if backend.sim_config["use_rush_hour_predictor"]:
+		return backend.rush_hour_predictor_model is not None
+
+	return float(backend.sim_config["manual_rush_hour_probability"]) > 0.0
+
+
 def render_sidebar(
 	backend: QueueSimulationBackend,
 	title: str,
@@ -1114,6 +1410,7 @@ def render_sidebar(
 	allow_add_patient: bool = False,
 	allow_staffing: bool = False,
 	allow_retrain: bool = False,
+	allow_wait_time_retrain: bool = False,
 	allow_speed_control: bool = False,
 ) -> str:
 	with st.sidebar:
@@ -1159,17 +1456,25 @@ def render_sidebar(
 			help="Available when the predictor is off. Sets the current rush hour probability manually.",
 		)
 
-		sidebar_surge_prob = backend.get_surge_probability(queue_df=sidebar_queue_df) * 100
-		surge_outlook_text = (
-			"Probability of an incoming surge based on the current queue and the trained predictor."
-			if backend.sim_config["use_rush_hour_predictor"]
-			else "Manual override is active. The simulator is using the percentage selected below."
-		)
+		sidebar_can_show_surge = should_render_surge_monitor(backend)
+		sidebar_surge_prob = backend.get_surge_probability(queue_df=sidebar_queue_df) * 100 if sidebar_can_show_surge else None
+		if backend.sim_config["use_rush_hour_predictor"] and backend.rush_hour_predictor_model is None:
+			surge_value_text = "Unavailable"
+			surge_outlook_text = "Rush-hour model is unavailable. Turn the predictor off and set a manual rush-hour probability to enable the surge monitor."
+		elif backend.sim_config["use_rush_hour_predictor"]:
+			surge_value_text = f"{sidebar_surge_prob:.1f}%"
+			surge_outlook_text = "Probability of an incoming surge based on the current queue and the trained predictor."
+		elif float(backend.sim_config["manual_rush_hour_probability"]) <= 0.0:
+			surge_value_text = "Unavailable"
+			surge_outlook_text = "Set a manual rush-hour probability above 0% to display the surge monitor while the predictor is off."
+		else:
+			surge_value_text = f"{sidebar_surge_prob:.1f}%"
+			surge_outlook_text = "Manual override is active. The simulator is using the percentage selected below."
 		st.markdown(
 			f'''
 			<div class="sidebar-note">
 			  <span>Rush hour outlook</span>
-			  <strong>{sidebar_surge_prob:.1f}%</strong>
+			  <strong>{escape(surge_value_text)}</strong>
 			  <p>{escape(surge_outlook_text)}</p>
 			</div>
 			''',
@@ -1183,6 +1488,14 @@ def render_sidebar(
 					st.success("Model retrained successfully.")
 				except Exception as exc:
 					st.error(f"Model retraining failed: {exc}")
+
+		if allow_wait_time_retrain and st.button("Retrain wait-time model", key=f"btn_retrain_wait_model_{title}"):
+			with st.spinner("Retraining wait-time model. This may take a moment."):
+				try:
+					backend.retrain_wait_time_model()
+					st.success("Wait-time model retrained successfully.")
+				except Exception as exc:
+					st.error(f"Wait-time model retraining failed: {exc}")
 
 		if allow_staffing:
 			selected_clinic_doctors = int(backend.sim_config["doctors_per_clinic"].get(selected_clinic, 1))
@@ -1233,6 +1546,8 @@ def render_sidebar(
 def get_dashboard_data(
 	backend: QueueSimulationBackend,
 	selected_clinic: str,
+	*,
+	now: datetime | None = None,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame], pd.DataFrame, float]:
 	try:
 		full_df = backend.prepare_queue_df(backend.db_manager.fetch_queue())
@@ -1242,7 +1557,7 @@ def get_dashboard_data(
 
 	clinic_queue_map = backend.build_clinic_queue_map(full_df)
 	df_waiting = clinic_queue_map.get(selected_clinic, backend.create_empty_queue_df()).copy()
-	surge_prob = backend.get_surge_probability(queue_df=full_df)
+	surge_prob = backend.get_surge_probability(queue_df=full_df, now=now)
 	return full_df, clinic_queue_map, df_waiting, surge_prob
 
 
@@ -1261,7 +1576,12 @@ def render_dashboard_view(
 ) -> None:
 	@st.fragment(run_every=timedelta(seconds=float(backend.sim_config["sim_speed"])))
 	def _render_dashboard_fragment() -> None:
-		full_df, clinic_queue_map, df_waiting, surge_prob = get_dashboard_data(backend, selected_clinic)
+		refresh_now = datetime.now()
+		full_df, clinic_queue_map, df_waiting, surge_prob = get_dashboard_data(
+			backend,
+			selected_clinic,
+			now=refresh_now,
+		)
 		st.markdown(
 			f'''
 			<div class="sim-hero">
@@ -1281,7 +1601,7 @@ def render_dashboard_view(
 		)
 
 		next_up = format_next_up(df_waiting)
-		avg_wait = format_average_wait(df_waiting)
+		wait_time_metrics = backend.get_wait_time_metrics(selected_clinic, df_waiting, now=refresh_now)
 		urgent_cases = int((df_waiting["priority"] <= 2).sum()) if not df_waiting.empty else 0
 
 		render_metric_card_row([
@@ -1297,12 +1617,8 @@ def render_dashboard_view(
 				"The next patient expected to be served based on current ordering.",
 				"water",
 			),
-			(
-				"Average wait",
-				avg_wait,
-				"Calculated from the current queue only and refreshed with the simulator.",
-				"peach",
-			),
+			wait_time_metrics[0],
+			wait_time_metrics[1],
 			(
 				"Urgent cases",
 				str(urgent_cases),
@@ -1314,7 +1630,7 @@ def render_dashboard_view(
 		if show_manager_metrics:
 			render_metric_card_row(backend.get_manager_metrics(selected_clinic))
 			render_metric_card_row(backend.get_manager_forecasts(selected_clinic))
-			render_metric_card_row(backend.get_model_performance_metrics(queue_df=full_df))
+			render_metric_card_row(backend.get_model_performance_metrics(queue_df=full_df, now=refresh_now))
 			render_manager_live_tables(backend, selected_clinic, df_waiting)
 
 		if show_queue_table:
@@ -1341,13 +1657,19 @@ def render_dashboard_view(
 					"Surge monitor",
 					"",
 				)
-				st.plotly_chart(build_surge_gauge(surge_prob), width="stretch")
+				if should_render_surge_monitor(backend):
+					st.plotly_chart(build_surge_gauge(surge_prob), width="stretch")
+				else:
+					st.info("Rush-hour outlook is unavailable. Turn the predictor off and set manual rush-hour probability above 0% to display the surge monitor.")
 		else:
 			render_section_heading(
 				"Surge monitor",
 				"",
 			)
-			st.plotly_chart(build_surge_gauge(surge_prob), width="stretch")
+			if should_render_surge_monitor(backend):
+				st.plotly_chart(build_surge_gauge(surge_prob), width="stretch")
+			else:
+				st.info("Rush-hour outlook is unavailable. Turn the predictor off and set manual rush-hour probability above 0% to display the surge monitor.")
 
 		if show_trends:
 			render_section_heading(
