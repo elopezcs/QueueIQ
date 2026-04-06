@@ -23,7 +23,7 @@ That launcher starts:
 Simulator:
 
 ```powershell
-.\.venv\Scripts\python.exe QueueControl\queue-simulation\queue_simulation_dashboard.py
+.\.venv\Scripts\python.exe QueueControl\queue-simulation\queue_simulation.py
 ```
 
 API:
