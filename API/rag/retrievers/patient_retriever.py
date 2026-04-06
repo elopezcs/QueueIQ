@@ -1,16 +1,17 @@
-from API.rag.db import fetch_all
+from API.rag.db import fetch_all, pgvector_enabled, to_vector_literal
+from API.rag.model_adapters.registry import embed_text
 
 
 class PatientContextRetriever:
-    def retrieve(
+    def _retrieve_lexical(
         self,
         *,
         patient_id: str,
         query: str,
-        date_from: str | None = None,
-        source_type: str | None = None,
-        encounter_type: str | None = None,
-        limit: int = 8,
+        date_from: str | None,
+        source_type: str | None,
+        encounter_type: str | None,
+        limit: int,
     ) -> list[dict]:
         params: list = [patient_id]
         clauses = ["patient_id = %s"]
@@ -70,6 +71,7 @@ class PatientContextRetriever:
         )
         rows = fetch_all(encounter_sql, tuple(params))
         merged = rows + meds + allergies + notes + labs
+
         if source_type:
             merged = [row for row in merged if str(row.get("source_type")) == source_type]
         if query.strip():
@@ -80,5 +82,80 @@ class PatientContextRetriever:
                     for row in merged
                     if any(token in str(row.get("snippet", "")).lower() for token in tokens)
                 ] or merged
-        return [{"source_id": row["source_id"], "source_type": row["source_type"], "snippet": row["snippet"]} for row in merged[:limit]]
+        return [
+            {"source_id": row["source_id"], "source_type": row["source_type"], "snippet": row["snippet"]}
+            for row in merged[:limit]
+        ]
+
+    def _retrieve_vector(
+        self,
+        *,
+        patient_id: str,
+        query: str,
+        source_type: str | None,
+        limit: int,
+    ) -> list[dict]:
+        if not query.strip() or not pgvector_enabled():
+            return []
+        try:
+            query_vec = to_vector_literal(embed_text(query))
+            params: list = [patient_id]
+            source_clause = ""
+            if source_type:
+                source_clause = "AND source_type = %s"
+                params.append(source_type)
+            params.extend([query_vec, max(1, limit)])
+            rows = fetch_all(
+                f"""
+                SELECT source_id, source_type, chunk_text AS snippet
+                FROM rag.patient_context_chunks
+                WHERE patient_id = %s {source_clause}
+                ORDER BY embedding <-> %s::vector
+                LIMIT %s
+                """,
+                tuple(params),
+            )
+            return [
+                {"source_id": row["source_id"], "source_type": row["source_type"], "snippet": row["snippet"]}
+                for row in rows
+            ]
+        except Exception:
+            return []
+
+    def retrieve(
+        self,
+        *,
+        patient_id: str,
+        query: str,
+        date_from: str | None = None,
+        source_type: str | None = None,
+        encounter_type: str | None = None,
+        limit: int = 8,
+    ) -> list[dict]:
+        vector_items = self._retrieve_vector(
+            patient_id=patient_id,
+            query=query,
+            source_type=source_type,
+            limit=limit,
+        )
+        lexical_items = self._retrieve_lexical(
+            patient_id=patient_id,
+            query=query,
+            date_from=date_from,
+            source_type=source_type,
+            encounter_type=encounter_type,
+            limit=limit,
+        )
+
+        ordered: list[dict] = []
+        seen: set[tuple[str, str]] = set()
+        for row in vector_items + lexical_items:
+            key = (str(row.get("source_type") or ""), str(row.get("source_id") or ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            ordered.append(row)
+            if len(ordered) >= limit:
+                break
+        return ordered
 

@@ -294,15 +294,36 @@ macOS or Linux:
 
 ## RAG Module (API/rag)
 
-QueueIQ now includes a dedicated RAG module at `API/rag` for patient+clinic retrieval with traceability.
+QueueIQ includes a dedicated RAG module at `API/rag` for authenticated chat intake, retrieval, and turn-level traceability in PostgreSQL.
 
-Architecture highlights:
-- `API/rag/routes.py`: `/rag/*` endpoints
-- `API/rag/services/rag_service.py`: session lifecycle, seed logic, trace/session reads
-- `API/rag/orchestrators/rag_orchestrator.py`: query routing + guardrails + model invocation
-- `API/rag/retrievers/*`: patient and clinic retrievers
+Architecture highlights (current-state):
+- `API/rag/routes.py`: `/rag/*` endpoints, including chat and audit endpoints
+- `API/rag/services/rag_service.py`: active chat lifecycle (`start`/`turn`/`end`), trace writes, and seed logic
+- `API/rag/orchestrators/intake_orchestrator.py`: active turn/finalize prompt orchestration path
+- `API/rag/orchestrators/rag_orchestrator.py`: retrieval-oriented orchestrator used by debug retrieval path
+- `API/rag/retrievers/*`: patient and clinic retrieval adapters
 - `API/rag/model_adapters/*`: provider abstraction (Ollama + OpenAI-compatible)
-- `API/rag/db.py`: PostgreSQL schema init and data access
+- `API/rag/db.py`: PostgreSQL schema init/migration and shared DB access
+
+Patient ingestion contract (new):
+- `API/rag/PATIENT_DATA_INGESTION_CONTRACT.md`: canonical source-to-target schema mappings, idempotent load order, and retrieval QA acceptance criteria for large patient-history ingestion.
+
+### Runtime Flow (Chat Turn)
+
+For `POST /rag/chat/turn`, the current execution path is:
+1. validate session ownership and status
+2. create a `rag.chat_turns` row
+3. persist user message in `rag.patient_chat_messages`
+4. build transcript + patient context
+5. persist `rag.retrieval_traces`
+6. build prompts through intake orchestrator and call model adapter
+7. persist assistant message
+8. persist `rag.llm_runs`
+9. finalize the turn row with message IDs, status, and latency
+
+Notes:
+- The active turn path uses intake orchestrator prompts.
+- Clinic knowledge retrieval tables are still used by retrieval/debug flows (for example `/rag/retrieve/debug`) and seed generation.
 
 ### Environment Variables
 
@@ -334,10 +355,14 @@ Supported active models:
 
 ### DB Setup and Migration
 
-RAG schema is auto-initialized when API starts (if `DATABASE_URL` is set), creating `rag.*` tables:
-- Patient context: `patients`, `encounters`, `medications`, `allergies`, `problem_list`, `clinical_notes`, `lab_summaries`, `patient_chat_sessions`, `patient_chat_messages`
+RAG schema is auto-initialized when API starts (if `DATABASE_URL` is set), creating/updating `rag.*` tables:
+- Patient context + sessions: `patients`, `encounters`, `medications`, `allergies`, `clinical_notes`, `lab_summaries`, `patient_context_chunks`, `patient_chat_sessions`, `patient_chat_messages`
 - Clinic KB: `clinics`, `clinic_documents`, `clinic_document_chunks`, `clinic_faqs`, `clinic_rules`, `clinic_hours_services`
-- Traceability: `retrieval_traces`, `llm_runs`, `prompt_versions`, `model_configs`
+- Traceability: `chat_turns`, `retrieval_traces`, `llm_runs`, `chat_outputs`, `model_configs`
+
+The init migration also drops legacy unused RAG tables:
+- `rag.prompt_versions`
+- `rag.problem_list`
 
 `pgvector` is attempted via `CREATE EXTENSION vector`. If unavailable, retrieval falls back to lexical filtering (no vector index dependency).
 
@@ -367,6 +392,10 @@ Debug:
 - `POST /rag/retrieve/debug`
 - `GET /rag/session/{session_id}`
 - `GET /rag/trace/{trace_id}`
+- `GET /rag/audit/sessions`
+- `GET /rag/audit/session/{session_id}/turns`
+- `GET /rag/audit/runs`
+- `GET /rag/audit/session/{session_id}/timeline`
 
 `POST /rag/retrieve/debug` now performs retrieval-only debugging and does **not** invoke generation.
 
@@ -383,4 +412,18 @@ Run tests (including new RAG tests):
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
 ```
+
+### Bulk Patient Ingestion ETL
+
+Use the ETL runner to ingest large patient histories into `patients` + `rag.*` tables:
+
+```powershell
+.\.venv\Scripts\python.exe "Chatbot\backend\scripts\patient_ingest_etl.py" --input "API\rag\examples\patient_ingest_payload.sample.json"
+```
+
+Useful flags:
+- `--dry-run`: validate end-to-end and rollback writes
+- `--patient-id <id>`: ingest only one patient from a batch file
+- `--skip-chunks`: skip `rag.patient_context_chunks` rebuild
+- `--continue-on-error`: process remaining records after a failure
 
