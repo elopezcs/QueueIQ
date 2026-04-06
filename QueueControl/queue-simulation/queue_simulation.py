@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import logging
 import os
 import random
@@ -13,6 +14,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from sklearn.metrics import accuracy_score, roc_auc_score
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if REPO_ROOT not in sys.path:
@@ -311,6 +313,23 @@ div[data-testid="stPlotlyChart"] {
   transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
 }
 
+.stDownloadButton > button {
+	width: 100%;
+	border-radius: 12px;
+	border: 1px solid var(--color-azure);
+	background: #ffffff;
+	color: var(--color-azure);
+	font-weight: 600;
+	padding: 0.7rem 1rem;
+	transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.stDownloadButton > button:hover {
+	background: #f3f8fb;
+	border-color: var(--color-azure-dark);
+	transform: translateY(-1px);
+}
+
 .stButton > button:hover {
   background: var(--color-azure-dark);
   border-color: var(--color-azure-dark);
@@ -363,22 +382,26 @@ class QueueSimulationBackend:
 
 		self.clinic_names = self.db_manager.fetch_clinics()["clinic_name"].tolist()
 		self.sim_config = {
-			"num_doctors": 1,
+			"num_doctors": 2,
 			"sim_speed": 2.0,
 			"use_rush_hour_predictor": True,
 			"manual_rush_hour_probability": 50,
-			"doctors_per_clinic": {clinic_name: 1 for clinic_name in self.clinic_names},
+			"doctors_per_clinic": {clinic_name: 2 for clinic_name in self.clinic_names},
 		}
-		self.doctors_free_at = {clinic_name: [datetime.now()] for clinic_name in self.clinic_names}
+		self.doctors_free_at = {clinic_name: [datetime.now()] * 2 for clinic_name in self.clinic_names}
 
 		script_dir = os.path.dirname(os.path.abspath(__file__))
 		self.model_path = os.path.abspath(
 			os.path.join(script_dir, "..", "models", "rush_hour_predictor_model.joblib")
 		)
+		self.model_metrics_path = os.path.abspath(
+			os.path.join(script_dir, "..", "models", "rush_hour_predictor_metrics.json")
+		)
 		self.training_script_path = os.path.abspath(
 			os.path.join(script_dir, "..", "model-training", "rush_hour_predictor_model.py")
 		)
 		self.rush_hour_predictor_model = joblib.load(self.model_path)
+		self.model_metrics = self.load_model_metrics()
 
 		self._simulation_thread: threading.Thread | None = None
 		self._simulation_lock = threading.Lock()
@@ -394,6 +417,60 @@ class QueueSimulationBackend:
 		spec.loader.exec_module(module)
 		module.train_model()
 		self.rush_hour_predictor_model = joblib.load(self.model_path)
+		self.model_metrics = self.load_model_metrics()
+
+	def load_model_metrics(self) -> dict[str, object]:
+		if not os.path.exists(self.model_metrics_path):
+			return self.estimate_model_metrics()
+
+		with open(self.model_metrics_path, "r", encoding="utf-8") as metrics_file:
+			return json.load(metrics_file)
+
+	def estimate_model_metrics(self) -> dict[str, object]:
+		try:
+			training_df = self.db_manager.fetch_training_data("clinic_historical_data")
+		except Exception:
+			return {}
+
+		feature_names = list(
+			getattr(
+				self.rush_hour_predictor_model,
+				"feature_names_in_",
+				[
+					"is_weekend",
+					"day_sin",
+					"day_cos",
+					"hour_sin",
+					"hour_cos",
+					"queue_length_at_arrival",
+					"arrivals_last_1_hour",
+					"avg_wait_last_1_hour",
+				],
+			)
+		)
+
+		required_columns = feature_names + ["is_surge_imminent"]
+		if training_df.empty or any(column not in training_df.columns for column in required_columns):
+			return {}
+
+		eval_df = training_df[required_columns].replace([np.inf, -np.inf], np.nan).dropna()
+		if eval_df.empty:
+			return {}
+
+		features = eval_df[feature_names]
+		target = eval_df["is_surge_imminent"].astype(int)
+		if target.nunique() < 2:
+			return {}
+
+		predictions = self.rush_hour_predictor_model.predict(features)
+		probabilities = self.rush_hour_predictor_model.predict_proba(features)[:, 1]
+		return {
+			"accuracy": float(accuracy_score(target, predictions)),
+			"roc_auc": float(roc_auc_score(target, probabilities)),
+			"trained_at": "Unavailable",
+			"performance_source": "retrospective",
+			"evaluation_rows": int(len(eval_df)),
+		}
 
 	@staticmethod
 	def get_duration(priority: int) -> int:
@@ -466,6 +543,178 @@ class QueueSimulationBackend:
 			return float(self.sim_config["manual_rush_hour_probability"]) / 100.0
 
 		return self.get_model_surge_probability(queue_df=queue_df, now=now)
+
+	def get_completed_patient_logs(self, clinic_name: str) -> pd.DataFrame:
+		activity_df = self.prepare_queue_df(self.db_manager.fetch_queue_activity())
+		if activity_df.empty:
+			return activity_df
+
+		if "seen_by_doctor_time" in activity_df.columns:
+			activity_df["seen_by_doctor_time"] = pd.to_datetime(activity_df["seen_by_doctor_time"])
+
+		completed_df = activity_df[
+			(activity_df["clinic_name"] == clinic_name)
+			& activity_df["seen_by_doctor_time"].notna()
+		].copy()
+		return completed_df.sort_values(by="seen_by_doctor_time", ascending=False).reset_index(drop=True)
+
+	def get_model_performance_metrics(
+		self,
+		queue_df: pd.DataFrame | None = None,
+		now: datetime | None = None,
+	) -> list[tuple[str, str, str, str]]:
+		metrics = self.model_metrics or {}
+		accuracy = metrics.get("accuracy")
+		roc_auc = metrics.get("roc_auc")
+		trained_at = str(metrics.get("trained_at") or "Unavailable")
+		performance_source = str(metrics.get("performance_source") or "saved_eval")
+		evaluation_rows = metrics.get("evaluation_rows")
+
+		current_probability = self.get_model_surge_probability(queue_df=queue_df, now=now)
+		confidence = min(100.0, abs(current_probability - 0.5) * 200.0)
+		confidence_direction = "surge" if current_probability >= 0.5 else "steady flow"
+
+		if trained_at != "Unavailable":
+			trained_at = trained_at.replace("T", " ").replace("Z", " UTC")
+
+		return [
+			(
+				"Model accuracy",
+				f"{float(accuracy) * 100:.1f}%" if accuracy is not None else "Unavailable",
+				(
+					"Held-out accuracy from the latest rush-hour training run."
+					if performance_source == "saved_eval"
+					else f"Retrospective score across {int(evaluation_rows)} available historical rows."
+				),
+				"water",
+			),
+			(
+				"ROC-AUC",
+				f"{float(roc_auc):.3f}" if roc_auc is not None else "Unavailable",
+				"How well the model separates surge and non-surge periods overall.",
+				"peach",
+			),
+			(
+				"Prediction confidence",
+				f"{confidence:.0f}%",
+				f"Current model confidence leans toward {confidence_direction} for the next demand window.",
+				"air",
+			),
+			(
+				"Last retrained",
+				trained_at,
+				"Timestamp of the latest saved evaluation and model artifact.",
+				"",
+			),
+		]
+
+	def get_manager_metrics(self, clinic_name: str) -> list[tuple[str, str, str, str]]:
+		now = datetime.now()
+		doctor_count = max(0, int(self.sim_config["doctors_per_clinic"].get(clinic_name, 0)))
+		busy_doctors = 0
+		if doctor_count > 0:
+			busy_doctors = sum(1 for free_at in self.doctors_free_at.get(clinic_name, [])[:doctor_count] if free_at > now)
+		utilization = (busy_doctors / doctor_count * 100.0) if doctor_count else 0.0
+
+		activity_df = self.db_manager.fetch_queue_activity()
+		activity_df = self.prepare_queue_df(activity_df)
+		if "seen_by_doctor_time" in activity_df.columns:
+			activity_df["seen_by_doctor_time"] = pd.to_datetime(activity_df["seen_by_doctor_time"])
+
+		clinic_activity = activity_df[activity_df["clinic_name"] == clinic_name].copy() if not activity_df.empty else self.create_empty_queue_df()
+		window_start = now - timedelta(hours=1)
+
+		served_last_hour = 0
+		queue_growth_rate = 0
+		if not clinic_activity.empty:
+			served_last_hour = int(
+				clinic_activity[
+					clinic_activity["seen_by_doctor_time"].notna()
+					& (clinic_activity["seen_by_doctor_time"] >= window_start)
+				].shape[0]
+			)
+
+			waiting_now = int(
+				clinic_activity[
+					clinic_activity["seen_by_doctor_time"].isna()
+					| (clinic_activity["seen_by_doctor_time"] > now)
+				].shape[0]
+			)
+			waiting_one_hour_ago = int(
+				clinic_activity[
+					(clinic_activity["arrival_time"] <= window_start)
+					& (
+						clinic_activity["seen_by_doctor_time"].isna()
+						| (clinic_activity["seen_by_doctor_time"] > window_start)
+					)
+				].shape[0]
+			)
+			queue_growth_rate = waiting_now - waiting_one_hour_ago
+
+		growth_prefix = "+" if queue_growth_rate > 0 else ""
+		return [
+			(
+				"Doctor utilization",
+				f"{utilization:.0f}%",
+				"Share of assigned doctors currently busy at this clinic.",
+				"water",
+			),
+			(
+				"Queue growth rate",
+				f"{growth_prefix}{queue_growth_rate}/hr",
+				"Net change in waiting patients versus one hour ago.",
+				"peach",
+			),
+			(
+				"Patients served",
+				f"{served_last_hour}/hr",
+				"Patients marked as seen during the last hour.",
+				"air",
+			),
+		]
+
+	def get_manager_forecasts(self, clinic_name: str) -> list[tuple[str, str, str, str]]:
+		now = datetime.now()
+		queue_df = self.prepare_queue_df(self.db_manager.fetch_queue())
+		surge_probability = self.get_surge_probability(queue_df=queue_df, now=now)
+		arrival_probability_per_tick = 0.05 + (surge_probability * 0.55)
+		ticks_per_hour = 3600.0 / max(float(self.sim_config["sim_speed"]), 0.5)
+		expected_arrivals_per_hour = arrival_probability_per_tick * ticks_per_hour
+
+		forecast_30m = max(0, int(round(expected_arrivals_per_hour * 0.5)))
+		forecast_60m = max(0, int(round(expected_arrivals_per_hour * 1.0)))
+		forecast_120m = max(0, int(round(expected_arrivals_per_hour * 2.0)))
+
+		forecast_note = (
+			f"Projected from the current simulator cadence and a {surge_probability * 100:.0f}% surge signal."
+		)
+		return [
+			(
+				"Next 30 min",
+				str(forecast_30m),
+				forecast_note,
+				"water",
+			),
+			(
+				"Next 60 min",
+				str(forecast_60m),
+				forecast_note,
+				"peach",
+			),
+			(
+				"Next 120 min",
+				str(forecast_120m),
+				forecast_note,
+				"air",
+			),
+		]
+
+	def mark_patient_no_show(self, record_id: int) -> None:
+		self.db_manager.delete_queue_record(record_id)
+
+	def retriage_patient(self, record_id: int, priority: int) -> None:
+		est_duration = self.get_duration(priority)
+		self.db_manager.update_patient_triage(record_id, priority, est_duration)
 
 	def start_simulation_thread(self) -> None:
 		with self._simulation_lock:
@@ -590,6 +839,107 @@ def format_average_wait(df_waiting: pd.DataFrame) -> str:
 	return f"{minutes}m"
 
 
+def build_queue_snapshot_table(df_waiting: pd.DataFrame) -> pd.DataFrame:
+	if df_waiting.empty:
+		return pd.DataFrame(
+			columns=["Patient ID", "Priority", "Urgency", "Arrival Time", "Est. Duration (sec)"]
+		)
+
+	display_df = df_waiting.copy()
+	display_df["Arrival Time"] = display_df["arrival_time"].dt.strftime("%Y-%m-%d %H:%M:%S")
+	display_df["Priority"] = display_df["priority"].map(lambda value: f"P{int(value)}")
+	display_df["Urgency"] = display_df["priority"].map(PRIORITY_LABELS)
+	display_df["Est. Duration (sec)"] = display_df["est_duration"].astype(int)
+	return display_df[["patient_id", "Priority", "Urgency", "Arrival Time", "Est. Duration (sec)"]].rename(
+		columns={"patient_id": "Patient ID"}
+	)
+
+
+def build_completed_patient_log_table(df_completed: pd.DataFrame) -> pd.DataFrame:
+	if df_completed.empty:
+		return pd.DataFrame(
+			columns=[
+				"Patient ID",
+				"Priority",
+				"Urgency",
+				"Arrival Time",
+				"Seen By Doctor Time",
+				"Wait Time (min)",
+				"Est. Duration (sec)",
+			]
+		)
+
+	display_df = df_completed.copy()
+	display_df["Arrival Time"] = display_df["arrival_time"].dt.strftime("%Y-%m-%d %H:%M:%S")
+	display_df["Seen By Doctor Time"] = display_df["seen_by_doctor_time"].dt.strftime("%Y-%m-%d %H:%M:%S")
+	display_df["Priority"] = display_df["priority"].map(lambda value: f"P{int(value)}")
+	display_df["Urgency"] = display_df["priority"].map(PRIORITY_LABELS)
+	display_df["Wait Time (min)"] = (
+		(display_df["seen_by_doctor_time"] - display_df["arrival_time"]).dt.total_seconds() / 60.0
+	).round(1)
+	display_df["Est. Duration (sec)"] = display_df["est_duration"].astype(int)
+	return display_df[
+		[
+			"patient_id",
+			"Priority",
+			"Urgency",
+			"Arrival Time",
+			"Seen By Doctor Time",
+			"Wait Time (min)",
+			"Est. Duration (sec)",
+		]
+	].rename(columns={"patient_id": "Patient ID"})
+
+
+def sanitize_filename_part(value: str) -> str:
+	return "_".join(value.lower().split())
+
+
+def render_manager_live_tables(
+	backend: QueueSimulationBackend,
+	selected_clinic: str,
+	df_waiting: pd.DataFrame,
+) -> None:
+	completed_df = backend.get_completed_patient_logs(selected_clinic)
+	snapshot_table = build_queue_snapshot_table(df_waiting)
+	completed_table = build_completed_patient_log_table(completed_df)
+	clinic_slug = sanitize_filename_part(selected_clinic)
+	timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+	render_section_heading(
+		f"Live operations for {selected_clinic}",
+		"Monitor the active queue and export point-in-time snapshots or completed patient history.",
+	)
+
+	queue_tab, completed_tab = st.tabs(["Live queue snapshot", "Completed patient log"])
+
+	with queue_tab:
+		st.download_button(
+			"Export queue snapshot CSV",
+			data=snapshot_table.to_csv(index=False).encode("utf-8"),
+			file_name=f"{clinic_slug}_queue_snapshot_{timestamp}.csv",
+			mime="text/csv",
+			key=f"download_queue_snapshot_{clinic_slug}",
+		)
+		if snapshot_table.empty:
+			st.info(f"No patients are currently waiting at {selected_clinic}.")
+		else:
+			st.dataframe(snapshot_table, width="stretch", hide_index=True)
+
+	with completed_tab:
+		st.download_button(
+			"Export completed patient log CSV",
+			data=completed_table.to_csv(index=False).encode("utf-8"),
+			file_name=f"{clinic_slug}_completed_patients_{timestamp}.csv",
+			mime="text/csv",
+			key=f"download_completed_log_{clinic_slug}",
+		)
+		if completed_table.empty:
+			st.info(f"No completed patient records are available yet for {selected_clinic}.")
+		else:
+			st.dataframe(completed_table, width="stretch", hide_index=True)
+
+
 def priority_cell_style(value: object) -> str:
 	try:
 		priority = int(value)
@@ -627,6 +977,58 @@ def build_queue_table(df_waiting: pd.DataFrame):
 			"Est. Duration": lambda value: f"{int(value)} sec",
 		}
 	).map(priority_cell_style, subset=["Priority"])
+
+
+def render_reception_queue_actions(
+	backend: QueueSimulationBackend,
+	df_waiting: pd.DataFrame,
+	selected_clinic: str,
+) -> None:
+	if df_waiting.empty:
+		st.info(f"The waiting room at {selected_clinic} is currently empty.")
+		return
+
+	headers = st.columns([1.0, 0.9, 1.4, 1.0, 1.2, 1.1, 1.1])
+	headers[0].markdown("**Patient ID**")
+	headers[1].markdown("**Priority**")
+	headers[2].markdown("**Arrival Time**")
+	headers[3].markdown("**Est. Duration**")
+	headers[4].markdown("**Re-triage**")
+	headers[5].markdown("**Apply**")
+	headers[6].markdown("**No-show**")
+
+	for _, patient in df_waiting.iterrows():
+		record_id = int(patient["record_id"])
+		patient_id = int(patient["patient_id"])
+		current_priority = int(patient["priority"])
+		arrival_time = patient["arrival_time"].strftime("%Y-%m-%d %H:%M:%S")
+		est_duration = int(patient["est_duration"])
+
+		row_cols = st.columns([1.0, 0.9, 1.4, 1.0, 1.2, 1.1, 1.1])
+		row_cols[0].write(str(patient_id))
+		row_cols[1].markdown(f"**P{current_priority}**  ")
+		row_cols[1].caption(PRIORITY_LABELS[current_priority])
+		row_cols[2].write(arrival_time)
+		row_cols[3].write(f"{est_duration} sec")
+
+		new_priority = row_cols[4].selectbox(
+			f"New priority for {patient_id}",
+			options=list(PRIORITY_LABELS.keys()),
+			index=list(PRIORITY_LABELS.keys()).index(current_priority),
+			format_func=lambda value: f"P{value} - {PRIORITY_LABELS[value]}",
+			label_visibility="collapsed",
+			key=f"retriage_priority_{selected_clinic}_{record_id}",
+		)
+
+		if row_cols[5].button("Save", key=f"retriage_save_{selected_clinic}_{record_id}"):
+			backend.retriage_patient(record_id, int(new_priority))
+			st.toast(f"Patient {patient_id} re-triaged to P{int(new_priority)}.")
+			st.rerun()
+
+		if row_cols[6].button("Delete", key=f"no_show_{selected_clinic}_{record_id}"):
+			backend.mark_patient_no_show(record_id)
+			st.toast(f"Patient {patient_id} removed as a no-show.")
+			st.rerun()
 
 
 def build_surge_gauge(surge_prob: float) -> go.Figure:
@@ -695,6 +1097,13 @@ def render_metric_card(title: str, value: str, caption: str, accent: str = "") -
 		''',
 		unsafe_allow_html=True,
 	)
+
+
+def render_metric_card_row(metrics: list[tuple[str, str, str, str]]) -> None:
+	metric_cols = st.columns(len(metrics))
+	for column, (title, value, caption, accent) in zip(metric_cols, metrics):
+		with column:
+			render_metric_card(title, value, caption, accent=accent)
 
 
 def render_sidebar(
@@ -847,9 +1256,12 @@ def render_dashboard_view(
 	hero_panel_text: str,
 	show_queue_table: bool,
 	show_trends: bool,
+	enable_reception_actions: bool = False,
+	show_manager_metrics: bool = False,
 ) -> None:
 	@st.fragment(run_every=timedelta(seconds=float(backend.sim_config["sim_speed"])))
 	def _render_dashboard_fragment() -> None:
+		full_df, clinic_queue_map, df_waiting, surge_prob = get_dashboard_data(backend, selected_clinic)
 		st.markdown(
 			f'''
 			<div class="sim-hero">
@@ -868,48 +1280,54 @@ def render_dashboard_view(
 			unsafe_allow_html=True,
 		)
 
-		_, clinic_queue_map, df_waiting, surge_prob = get_dashboard_data(backend, selected_clinic)
 		next_up = format_next_up(df_waiting)
 		avg_wait = format_average_wait(df_waiting)
 		urgent_cases = int((df_waiting["priority"] <= 2).sum()) if not df_waiting.empty else 0
 
-		metric_cols = st.columns(4)
-		with metric_cols[0]:
-			render_metric_card(
+		render_metric_card_row([
+			(
 				"Queue at selected clinic",
 				str(len(df_waiting)),
 				"Patients currently waiting in the active clinic view.",
-			)
-		with metric_cols[1]:
-			render_metric_card(
+				"",
+			),
+			(
 				"Next up",
 				next_up,
 				"The next patient expected to be served based on current ordering.",
-				accent="water",
-			)
-		with metric_cols[2]:
-			render_metric_card(
+				"water",
+			),
+			(
 				"Average wait",
 				avg_wait,
 				"Calculated from the current queue only and refreshed with the simulator.",
-				accent="peach",
-			)
-		with metric_cols[3]:
-			render_metric_card(
+				"peach",
+			),
+			(
 				"Urgent cases",
 				str(urgent_cases),
 				"Patients at priority P1 or P2 currently in the selected clinic.",
-				accent="air",
-			)
+				"air",
+			),
+		])
+
+		if show_manager_metrics:
+			render_metric_card_row(backend.get_manager_metrics(selected_clinic))
+			render_metric_card_row(backend.get_manager_forecasts(selected_clinic))
+			render_metric_card_row(backend.get_model_performance_metrics(queue_df=full_df))
+			render_manager_live_tables(backend, selected_clinic, df_waiting)
 
 		if show_queue_table:
 			main_cols = st.columns([1.8, 1.05])
 
 			with main_cols[0]:
 				render_section_heading(
-					f"Current queue for {selected_clinic}"
+					f"Current queue for {selected_clinic}",
+					"Reception can remove no-shows and update triage directly from this queue view." if enable_reception_actions else "",
 				)
-				if not df_waiting.empty:
+				if enable_reception_actions:
+					render_reception_queue_actions(backend, df_waiting, selected_clinic)
+				elif not df_waiting.empty:
 					st.dataframe(
 						build_queue_table(df_waiting),
 						width="stretch",

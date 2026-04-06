@@ -32,6 +32,7 @@ def main() -> None:
         ),
         show_queue_table=True,
         show_trends=True,
+        enable_reception_actions=True,
     )
 
 

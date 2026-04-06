@@ -33,6 +33,7 @@ def main() -> None:
         ),
         show_queue_table=False,
         show_trends=True,
+        show_manager_metrics=True,
     )
 
 

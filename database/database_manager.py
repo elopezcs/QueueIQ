@@ -64,7 +64,7 @@ class DatabaseManager:
             """))
             conn.execute(text(f"""
                 CREATE TABLE IF NOT EXISTS clinic_historical_data (
-                    clinic_name VARCHAR(100) NOT NULL,
+                    clinic_id VARCHAR(100) NOT NULL,
                     arrival_time TIMESTAMP NOT NULL,
                     day_of_week INTEGER NOT NULL,
                     day_sin DOUBLE PRECISION NOT NULL,
@@ -80,12 +80,29 @@ class DatabaseManager:
                     avg_wait_last_1_hour DOUBLE PRECISION NOT NULL,
                     actual_wait_minutes DOUBLE PRECISION NOT NULL,
                     arrivals_next_2_hours DOUBLE PRECISION NOT NULL,
-                    is_surge_imminent INTEGER NOT NULL
+                    is_surge_imminent INTEGER NOT NULL,
+                    CONSTRAINT fk_clinic_historical_data_clinic
+                        FOREIGN KEY (clinic_id) REFERENCES clinics (clinic_id)
                 );
             """))
             conn.execute(text("""
                 ALTER TABLE clinic_queue
                 ADD COLUMN IF NOT EXISTS seen_by_doctor_time TIMESTAMP NULL;
+            """))
+            conn.execute(text("""
+                ALTER TABLE clinic_historical_data
+                ADD COLUMN IF NOT EXISTS clinic_id VARCHAR(100);
+            """))
+            conn.execute(text("""
+                UPDATE clinic_historical_data AS historical
+                SET clinic_id = clinics.clinic_id
+                FROM clinics
+                WHERE historical.clinic_id IS NULL
+                  AND historical.clinic_name = clinics.clinic_name;
+            """))
+            conn.execute(text("""
+                ALTER TABLE clinic_historical_data
+                ALTER COLUMN clinic_name DROP NOT NULL;
             """))
 
     def fetch_queue(self) -> pd.DataFrame:
@@ -94,6 +111,15 @@ class DatabaseManager:
             FROM clinic_queue
             WHERE seen_by_doctor_time IS NULL
             ORDER BY clinic_name, priority ASC, arrival_time ASC
+        """)
+        with self.engine.connect() as conn:
+            return pd.read_sql_query(query, conn)
+
+    def fetch_queue_activity(self) -> pd.DataFrame:
+        query = text("""
+            SELECT record_id, clinic_name, patient_id, arrival_time, priority, est_duration, seen_by_doctor_time
+            FROM clinic_queue
+            ORDER BY clinic_name, arrival_time ASC
         """)
         with self.engine.connect() as conn:
             return pd.read_sql_query(query, conn)
@@ -127,6 +153,27 @@ class DatabaseManager:
                 SET seen_by_doctor_time = CURRENT_TIMESTAMP
                 WHERE record_id = :record_id
             """), {"record_id": record_id})
+
+    def delete_queue_record(self, record_id: int):
+        with self.engine.begin() as conn:
+            conn.execute(text("""
+                DELETE FROM clinic_queue
+                WHERE record_id = :record_id
+            """), {"record_id": record_id})
+
+    def update_patient_triage(self, record_id: int, priority: int, est_duration: int):
+        with self.engine.begin() as conn:
+            conn.execute(text("""
+                UPDATE clinic_queue
+                SET priority = :priority,
+                    est_duration = :est_duration
+                WHERE record_id = :record_id
+                  AND seen_by_doctor_time IS NULL
+            """), {
+                "record_id": record_id,
+                "priority": priority,
+                "est_duration": est_duration,
+            })
 
 
     def fetch_training_data(self, table_name) -> pd.DataFrame:
