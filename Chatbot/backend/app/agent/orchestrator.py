@@ -1,4 +1,5 @@
 import json
+import re
 import secrets
 from typing import Any
 
@@ -36,6 +37,72 @@ def transcript_to_text(transcript: list[dict[str, Any]]) -> str:
         content = (message.get("content") or "").strip()
         lines.append(f"{role.upper()}: {content}")
     return "\n".join(lines).strip()
+
+
+
+
+def _normalize_message_text(content: str, *, max_length: int = 120) -> str:
+    normalized = re.sub(r"\s+", " ", (content or "").strip())
+    if len(normalized) <= max_length:
+        return normalized
+    return normalized[: max(0, max_length - 3)].rstrip() + "..."
+
+
+def _extract_user_highlights(transcript: list[dict[str, Any]], *, max_items: int = 3) -> list[str]:
+    highlights: list[str] = []
+    seen: set[str] = set()
+    for message in transcript:
+        role = str(message.get("role") or "").lower()
+        if role != "user":
+            continue
+        snippet = _normalize_message_text(str(message.get("content") or ""))
+        if not snippet:
+            continue
+        key = snippet.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        highlights.append(snippet)
+    if len(highlights) <= max_items:
+        return highlights
+    return highlights[-max_items:]
+
+
+def _is_placeholder_explanation(explanation: str) -> bool:
+    normalized = re.sub(r"\s+", " ", (explanation or "").strip()).lower()
+    if not normalized:
+        return True
+    placeholders = {
+        "operational summary based on your answers.",
+        "operational summary based on your answers",
+        "operational estimate based on your intake answers and any saved profile details available in stub mode.",
+    }
+    if normalized in placeholders:
+        return True
+    if normalized.startswith("operational summary based on your answers"):
+        return True
+    return len(normalized) < 40
+
+
+def _build_explanation_from_transcript(
+    *,
+    transcript: list[dict[str, Any]],
+    visit_category: str,
+    urgency_band: str,
+) -> str:
+    highlights = _extract_user_highlights(transcript)
+    visit = (visit_category or "general").strip() or "general"
+    urgency = (urgency_band or "medium").strip() or "medium"
+    if highlights:
+        details = "; ".join(f'"{item}"' for item in highlights)
+        return (
+            f"Based on your intake details ({details}), we prepared a {visit} visit summary "
+            f"with {urgency} operational urgency for queue planning."
+        )
+    return (
+        f"We prepared a {visit} visit summary with {urgency} operational urgency "
+        "for queue planning based on your intake."
+    )
 
 
 class ChatOrchestrator:
@@ -147,6 +214,12 @@ class ChatOrchestrator:
                 urgency_band = "medium"
             visit_category = str(data.get("visit_category", "general")).strip() or "general"
             explanation = str(data.get("explanation", "")).strip() or "Operational summary based on your answers."
+            if _is_placeholder_explanation(explanation):
+                explanation = _build_explanation_from_transcript(
+                    transcript=transcript,
+                    visit_category=visit_category,
+                    urgency_band=urgency_band,
+                )
 
         capacity = clinic.get("mock_capacity", {})
         servers_total = int(capacity.get("servers_total", 3))

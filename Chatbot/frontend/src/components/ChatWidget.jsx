@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 
-export default function ChatWidget({ messages, onSend, disabled, done, progress, onFinish, onReset, loading, hasResults = false }) {
+export default function ChatWidget({ messages, onSend, disabled, done, progress, onFinish, onReset, loading, hasResults = false, loginRequired = false, onLoginClick, onRegisterClick }) {
   const [text, setText] = useState("");
   const listRef = useRef(null);
   const inputRef = useRef(null);
@@ -10,10 +10,8 @@ export default function ChatWidget({ messages, onSend, disabled, done, progress,
     listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [messages]);
 
-  // Re-focus input when loading finishes (i.e., when the bot replies)
   useEffect(() => {
     if (!loading && !done && inputRef.current) {
-      // Small timeout to ensure React has finished rendering the enabled input
       setTimeout(() => {
         if (inputRef.current) {
           inputRef.current.focus();
@@ -28,7 +26,6 @@ export default function ChatWidget({ messages, onSend, disabled, done, progress,
     if (!msg) return;
     setText("");
     onSend(msg);
-    // Refocus input after sending
     if (inputRef.current) {
       inputRef.current.focus();
     }
@@ -46,8 +43,21 @@ export default function ChatWidget({ messages, onSend, disabled, done, progress,
       </div>
 
       <div className="chatList" ref={listRef}>
-        {messages.length === 0 && (
+        {messages.length === 0 && !loginRequired && (
           <div className="muted">Start intake to begin.</div>
+        )}
+
+        {loginRequired && (
+          <div className="bubble assistant warning">
+            <div className="role">assistant</div>
+            <div>
+              Welcome! Please log in or create a free account to start your intake.
+              <div className="auth-actions" style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                <button className="btn" type="button" onClick={onLoginClick}>Log in</button>
+                <button className="btn secondary" type="button" onClick={onRegisterClick}>Register</button>
+              </div>
+            </div>
+          </div>
         )}
 
         {messages.map((m, idx) => (
@@ -59,7 +69,7 @@ export default function ChatWidget({ messages, onSend, disabled, done, progress,
         {loading && (
           <div className="bubble assistant loading">
             <div className="role">assistant</div>
-            <div><span className="loader-spinner" /> Thinking…</div>
+            <div><span className="loader-spinner" /> Thinking...</div>
           </div>
         )}
       </div>
@@ -71,12 +81,12 @@ export default function ChatWidget({ messages, onSend, disabled, done, progress,
               ref={inputRef}
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder={disabled ? "Chat disabled" : "Type your message..."}
-              disabled={disabled}
+              placeholder={disabled || loginRequired ? "Log in to chat" : "Type your message..."}
+              disabled={disabled || loginRequired}
               maxLength={2000}
               style={{ flex: 1 }}
             />
-            <button className="btn" disabled={disabled}>
+            <button className="btn" disabled={disabled || loginRequired}>
               Send
             </button>
           </form>
