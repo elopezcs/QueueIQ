@@ -70,7 +70,7 @@ QUEUEIQ_MODULES: tuple[ProductModule, ...] = (
         run_steps=(
             ".\\.venv\\Scripts\\python.exe QueueControl\\queue-simulation\\backend-queue-simulation.py",
             ".\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --app-dir QueueControl\\backend",
-            ".\\.venv\\Scripts\\python.exe -m streamlit run QueueControl\\queue-simulation\\queue_simulation_dashboard.py --server.address 127.0.0.1 --server.port 8501",
+            ".\\.venv\\Scripts\\python.exe -m streamlit run QueueControl\\queue-simulation\\queue_simulation.py --server.address 127.0.0.1 --server.port 8501",
         ),
         services=(
             ServiceEndpoint(

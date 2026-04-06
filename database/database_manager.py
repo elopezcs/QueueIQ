@@ -58,7 +58,8 @@ class DatabaseManager:
                     patient_id INTEGER NOT NULL,
                     arrival_time TIMESTAMP NOT NULL,
                     priority INTEGER NOT NULL,
-                    est_duration INTEGER NOT NULL
+                    est_duration INTEGER NOT NULL,
+                    seen_by_doctor_time TIMESTAMP NULL
                 );
             """))
             conn.execute(text(f"""
@@ -82,11 +83,16 @@ class DatabaseManager:
                     is_surge_imminent INTEGER NOT NULL
                 );
             """))
+            conn.execute(text("""
+                ALTER TABLE clinic_queue
+                ADD COLUMN IF NOT EXISTS seen_by_doctor_time TIMESTAMP NULL;
+            """))
 
     def fetch_queue(self) -> pd.DataFrame:
         query = text("""
             SELECT record_id, clinic_name, patient_id, arrival_time, priority, est_duration
             FROM clinic_queue
+            WHERE seen_by_doctor_time IS NULL
             ORDER BY clinic_name, priority ASC, arrival_time ASC
         """)
         with self.engine.connect() as conn:
@@ -94,8 +100,8 @@ class DatabaseManager:
 
     def fetch_clinics(self) -> pd.DataFrame:
         query = text("""
-            SELECT clinic_name
-            FROM clinics
+            SELECT clinic_id, clinic_name
+            FROM clinics 
             ORDER BY clinic_name ASC
         """)
         with self.engine.connect() as conn:
@@ -104,8 +110,8 @@ class DatabaseManager:
     def insert_patient(self, clinic_name: str, patient_id: int, arrival_time: pd.Timestamp, priority: int, est_duration: int):
         with self.engine.begin() as conn:
             conn.execute(text("""
-                INSERT INTO clinic_queue (clinic_name, patient_id, arrival_time, priority, est_duration)
-                VALUES (:clinic_name, :patient_id, :arrival_time, :priority, :est_duration)
+                INSERT INTO clinic_queue (clinic_name, patient_id, arrival_time, priority, est_duration, seen_by_doctor_time)
+                VALUES (:clinic_name, :patient_id, :arrival_time, :priority, :est_duration, NULL)
             """), {
                 "clinic_name": clinic_name,
                 "patient_id": patient_id,
@@ -114,10 +120,11 @@ class DatabaseManager:
                 "est_duration": est_duration,
             })
 
-    def delete_patient(self, record_id: int):
+    def mark_patient_seen(self, record_id: int):
         with self.engine.begin() as conn:
             conn.execute(text("""
-                DELETE FROM clinic_queue
+                UPDATE clinic_queue
+                SET seen_by_doctor_time = CURRENT_TIMESTAMP
                 WHERE record_id = :record_id
             """), {"record_id": record_id})
 

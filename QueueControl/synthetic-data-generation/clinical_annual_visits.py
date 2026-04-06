@@ -2,9 +2,11 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from dataclasses import dataclass
+import heapq
 import os
 import sys
 import logging
+from time import perf_counter
 
 logger = logging.getLogger("queueiq.api")
 
@@ -51,7 +53,7 @@ class ClinicalAnnualVisitsGenerator:
             if_exists="append",
             index=False,
             method="multi",
-            chunksize=1000,
+            chunksize=5000,
         )
 
     def get_duration(self, priority: int) -> int:
@@ -87,6 +89,13 @@ class ClinicalAnnualVisitsGenerator:
                             "est_duration": self.get_duration(int(priority)),
                         })
 
+            if (day + 1) % 30 == 0 or day == self.config.days_to_simulate - 1:
+                self.logger.info(
+                    "Generated arrivals for %s/%s days",
+                    day + 1,
+                    self.config.days_to_simulate,
+                )
+
         df_visits = pd.DataFrame(all_visits)
         return df_visits.sort_values(by=["clinic_name", "arrival_time"]).reset_index(drop=True)
 
@@ -112,15 +121,19 @@ class ClinicalAnnualVisitsGenerator:
         for clinic in self.clinic_names:
             clinic_data = df_visits[df_visits["clinic_name"] == clinic].to_dict("records")
             doctors_free_at = [self.config.start_date] * self.config.num_doctors
-            queue_history: list[tuple[datetime, datetime]] = []
+            heapq.heapify(doctors_free_at)
+            queued_start_times: list[datetime] = []
 
             for visit in clinic_data:
                 arrival_time = visit["arrival_time"]
-                queue_length = sum(1 for hist_arrival, hist_start in queue_history if hist_arrival <= arrival_time and hist_start > arrival_time)
+
+                while queued_start_times and queued_start_times[0] <= arrival_time:
+                    heapq.heappop(queued_start_times)
+
+                queue_length = len(queued_start_times)
                 visit["queue_length_at_arrival"] = queue_length
 
-                doctors_free_at.sort()
-                earliest_free = doctors_free_at[0]
+                earliest_free = heapq.heappop(doctors_free_at)
 
                 if earliest_free <= arrival_time:
                     start_time = arrival_time
@@ -128,12 +141,14 @@ class ClinicalAnnualVisitsGenerator:
                 else:
                     start_time = earliest_free
                     wait_minutes = (start_time - arrival_time).total_seconds() / 60.0
+                    heapq.heappush(queued_start_times, start_time)
 
-                doctors_free_at[0] = start_time + timedelta(minutes=visit["est_duration"])
-                queue_history.append((arrival_time, start_time))
+                heapq.heappush(doctors_free_at, start_time + timedelta(minutes=visit["est_duration"]))
 
                 visit["actual_wait_minutes"] = round(wait_minutes, 1)
                 final_data.append(visit)
+
+            self.logger.info("Processed queue simulation for clinic '%s' (%s visits)", clinic, len(clinic_data))
 
         return pd.DataFrame(final_data)
 
@@ -192,27 +207,46 @@ class ClinicalAnnualVisitsGenerator:
         return df_final[columns]
 
     def generate_data(self, persist_to_db: bool = True) -> pd.DataFrame:
+        started_at = perf_counter()
         df_visits = self.generate_arrivals()
+        self.logger.info("Arrival generation completed in %.2f seconds", perf_counter() - started_at)
+
+        stage_started_at = perf_counter()
         df_final = self.simulate_queue(df_visits)
+        self.logger.info("Queue simulation completed in %.2f seconds", perf_counter() - stage_started_at)
+
+        stage_started_at = perf_counter()
         df_final = self.engineer_features(df_final)
+        self.logger.info("Feature engineering completed in %.2f seconds", perf_counter() - stage_started_at)
+
+        stage_started_at = perf_counter()
         df_final = self.calculate_targets(df_final)
+        self.logger.info("Target calculation completed in %.2f seconds", perf_counter() - stage_started_at)
+
         df_final = self.finalize_dataset(df_final)
 
         if persist_to_db:
+            stage_started_at = perf_counter()
             self.persist_generated_data(df_final)
             self.logger.info(
                 f"✅ Success! Saved {len(df_final)} rows to database table '{self.config.table_name}'"
             )
+            self.logger.info("Database persistence completed in %.2f seconds", perf_counter() - stage_started_at)
 
         display_columns = [
             "arrival_time", "hour_sin", "arrivals_last_1_hour", "queue_length_at_arrival", "is_surge_imminent"
         ]
         self.logger.info("\nSample Data (Features & Targets):")
         self.logger.info("\n%s", df_final[display_columns].head(10))
+        self.logger.info("Full generation completed in %.2f seconds", perf_counter() - started_at)
         return df_final
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
     generator = ClinicalAnnualVisitsGenerator()
     generator.generate_data(persist_to_db=True)
 

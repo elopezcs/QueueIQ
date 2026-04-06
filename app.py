@@ -16,6 +16,9 @@ from queueiq_common import COMMON_LIBRARY_NOTES, QUEUEIQ_MODULES, collect_status
 ROOT_DIR = Path(__file__).resolve().parent
 RUNTIME_LOG_DIR = ROOT_DIR / "runtime-logs"
 LOCAL_HOST = "127.0.0.1"
+PATIENT_DASHBOARD_PORT = 8501
+RECEPTION_DASHBOARD_PORT = 8502
+MANAGER_DASHBOARD_PORT = 8503
 
 
 @dataclass(frozen=True)
@@ -115,24 +118,66 @@ def _build_specs() -> tuple[LaunchSpec, ...]:
             startup_timeout=45.0,
         ),
         LaunchSpec(
-            key="queuecontrol-dashboard",
-            name="QueueControl Dashboard",
+            key="queuecontrol-patient-dashboard",
+            name="QueueControl Patient Dashboard",
             cwd=ROOT_DIR / "QueueControl",
             command=(
                 python,
                 "-m",
                 "streamlit",
                 "run",
-                "queue-simulation/queue_simulation_dashboard.py",
+                "dashboards/patient_view_dashboard.py",
                 "--server.address",
                 LOCAL_HOST,
                 "--server.port",
-                "8501",
+                str(PATIENT_DASHBOARD_PORT),
                 "--server.headless",
                 "true",
             ),
-            url="http://127.0.0.1:8501",
-            port=8501,
+            url=f"http://{LOCAL_HOST}:{PATIENT_DASHBOARD_PORT}",
+            port=PATIENT_DASHBOARD_PORT,
+            startup_timeout=45.0,
+        ),
+        LaunchSpec(
+            key="queuecontrol-reception-dashboard",
+            name="QueueControl Reception Dashboard",
+            cwd=ROOT_DIR / "QueueControl",
+            command=(
+                python,
+                "-m",
+                "streamlit",
+                "run",
+                "dashboards/reception_view_dashboard.py",
+                "--server.address",
+                LOCAL_HOST,
+                "--server.port",
+                str(RECEPTION_DASHBOARD_PORT),
+                "--server.headless",
+                "true",
+            ),
+            url=f"http://{LOCAL_HOST}:{RECEPTION_DASHBOARD_PORT}",
+            port=RECEPTION_DASHBOARD_PORT,
+            startup_timeout=45.0,
+        ),
+        LaunchSpec(
+            key="queuecontrol-manager-dashboard",
+            name="QueueControl Manager Dashboard",
+            cwd=ROOT_DIR / "QueueControl",
+            command=(
+                python,
+                "-m",
+                "streamlit",
+                "run",
+                "dashboards/manager_view_dashboard.py",
+                "--server.address",
+                LOCAL_HOST,
+                "--server.port",
+                str(MANAGER_DASHBOARD_PORT),
+                "--server.headless",
+                "true",
+            ),
+            url=f"http://{LOCAL_HOST}:{MANAGER_DASHBOARD_PORT}",
+            port=MANAGER_DASHBOARD_PORT,
             startup_timeout=45.0,
         ),
     )
@@ -237,7 +282,7 @@ def run_workspace_launcher() -> int:
         return 1
 
     print("Starting QueueIQ from the repo root .venv...")
-    print("This will launch Chatbot frontend/backend plus QueueControl simulator, backend, and dashboard.")
+    print("This will launch Chatbot frontend/backend plus the QueueControl patient, reception, and manager dashboards.")
     print()
 
     launched: list[LaunchResult] = []
@@ -274,8 +319,9 @@ def run_workspace_launcher() -> int:
         print("QueueIQ is running.")
         print("- Chatbot frontend: http://127.0.0.1:5173")
         print("- Chatbot backend:  http://127.0.0.1:8000/docs")
-        print("- QueueControl API: http://127.0.0.1:8001/docs")
-        print("- QueueControl UI:  http://127.0.0.1:8501")
+        print(f"- Patient dashboard:   http://{LOCAL_HOST}:{PATIENT_DASHBOARD_PORT}")
+        print(f"- Reception dashboard: http://{LOCAL_HOST}:{RECEPTION_DASHBOARD_PORT}")
+        print(f"- Manager dashboard:   http://{LOCAL_HOST}:{MANAGER_DASHBOARD_PORT}")
         print()
         print("Press Ctrl+C in this terminal to stop every process started by the launcher.")
 
@@ -327,6 +373,18 @@ def render_workspace_page() -> None:
             "while one root launcher can start the full experience for demos and local testing."
         )
 
+        st.markdown("### QueueControl dashboard views")
+        queue_dashboard_cols = st.columns(3)
+        queue_dashboard_links = (
+            ("Patient View", f"http://{LOCAL_HOST}:{PATIENT_DASHBOARD_PORT}", "Patient-facing live queue view"),
+            ("Reception View", f"http://{LOCAL_HOST}:{RECEPTION_DASHBOARD_PORT}", "Front-desk intake and queue supervision"),
+            ("Manager View", f"http://{LOCAL_HOST}:{MANAGER_DASHBOARD_PORT}", "Staffing, prediction, and trend controls"),
+        )
+        for column, (label, url, description) in zip(queue_dashboard_cols, queue_dashboard_links):
+            with column:
+                st.link_button(label, url, use_container_width=True)
+                st.caption(description)
+
         for module in QUEUEIQ_MODULES:
             st.markdown(f"### {module.name}")
             left_col, right_col = st.columns([1.3, 1.0])
@@ -359,8 +417,8 @@ def render_workspace_page() -> None:
         st.subheader("Run the full stack from the repo root")
         st.code("python -m venv .venv\n.\\.venv\\Scripts\\python.exe -m pip install -r requirements.txt\ncd Chatbot\\frontend\nnpm install\ncd ..\\..\n.\\.venv\\Scripts\\python.exe app.py", language="bash")
         st.write(
-            "The root launcher starts Chatbot frontend/backend plus QueueControl simulator, backend, "
-            "and dashboard using the same Python environment."
+            "The root launcher starts Chatbot frontend/backend plus the QueueControl patient, reception, "
+            "and manager dashboards using the same Python environment."
         )
 
         chatbot_col, queue_col = st.columns(2)
