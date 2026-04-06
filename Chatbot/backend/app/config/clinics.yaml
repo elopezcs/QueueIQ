@@ -1,7 +1,7 @@
 version: 1
 clinics:
   - id: "kitchener-downtown"
-    name: "QueueIQ Walk-in Kitchener Downtown"
+    name: "Walk-in Kitchener Downtown"
     address_or_city: "Kitchener, ON"
     hours:
       mon: "09:00-17:00"
@@ -16,7 +16,7 @@ clinics:
       avg_service_minutes: 12
 
   - id: "waterloo-uptown"
-    name: "QueueIQ Walk-in Waterloo Uptown"
+    name: "Walk-in Waterloo Uptown"
     address_or_city: "Waterloo, ON"
     hours:
       mon: "10:00-18:00"
@@ -31,7 +31,7 @@ clinics:
       avg_service_minutes: 14
 
   - id: "waterloo-boardwalk"
-    name: "QueueIQ Walk-in The Boardwalk"
+    name: "Walk-in The Boardwalk"
     address_or_city: "Waterloo, ON"
     hours:
       mon: "08:00-20:00"
@@ -46,7 +46,7 @@ clinics:
       avg_service_minutes: 10
 
   - id: "kitchener-fairway"
-    name: "QueueIQ Walk-in Fairway"
+    name: "Walk-in Fairway"
     address_or_city: "Kitchener, ON"
     hours:
       mon: "09:00-19:00"
@@ -61,7 +61,7 @@ clinics:
       avg_service_minutes: 15
 
   - id: "cambridge-hespeler"
-    name: "QueueIQ Walk-in Cambridge Hespeler"
+    name: "Walk-in Cambridge Hespeler"
     address_or_city: "Cambridge, ON"
     hours:
       mon: "08:30-17:30"

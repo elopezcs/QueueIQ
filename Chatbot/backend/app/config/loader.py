@@ -1,4 +1,5 @@
 import hashlib
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -6,8 +7,15 @@ import yaml
 
 from app.core.settings import settings
 
+try:
+    from API.rag.db import fetch_all, rag_db_enabled
+except ModuleNotFoundError:
+    fetch_all = None
+    rag_db_enabled = None
+
 _cached: dict[str, Any] | None = None
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
+logger = logging.getLogger("queueiq.config.loader")
 
 
 def _config_path() -> Path:
@@ -32,6 +40,30 @@ def load_clinics_config() -> dict[str, Any]:
 
 
 def get_clinic_by_id(clinic_id: str) -> dict[str, Any] | None:
+    if callable(rag_db_enabled) and callable(fetch_all):
+        try:
+            if rag_db_enabled():
+                rows = fetch_all(
+                    """
+                    SELECT clinic_id, clinic_name, city
+                    FROM rag.clinics
+                    WHERE clinic_id = %s
+                    LIMIT 1
+                    """,
+                    (clinic_id,),
+                )
+                if rows:
+                    row = rows[0]
+                    return {
+                        "id": row["clinic_id"],
+                        "name": row["clinic_name"],
+                        "address_or_city": row.get("city") or "",
+                        "hours": {},
+                        "mock_capacity": {"servers_total": 3, "avg_service_minutes": 12},
+                    }
+        except Exception:
+            logger.exception("Failed to load clinic_id=%s from rag.clinics; using YAML fallback", clinic_id)
+
     cfg = load_clinics_config()
     for clinic in cfg.get('clinics', []):
         if clinic.get('id') == clinic_id:

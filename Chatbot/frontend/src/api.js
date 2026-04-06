@@ -174,7 +174,7 @@ export async function createAppointment(clinicId, scheduledFor, description, ses
 }
 
 export async function startChat(clinicId) {
-  return apiFetch('/chat/start', {
+  return apiFetch('/rag/chat/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ clinic_id: clinicId }),
@@ -182,7 +182,7 @@ export async function startChat(clinicId) {
 }
 
 export async function chatTurn(sessionId, userMessage) {
-  return apiFetch('/chat/turn', {
+  return apiFetch('/rag/chat/turn', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({
@@ -193,10 +193,58 @@ export async function chatTurn(sessionId, userMessage) {
 }
 
 export async function endChat(sessionId) {
-  return apiFetch('/chat/end', {
+  return apiFetch('/rag/chat/end', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ session_id: sessionId }),
+  });
+}
+
+export async function getRagAuditSessions({ patientId = '', limit = 50, offset = 0 } = {}) {
+  const queryParams = new URLSearchParams();
+  if (patientId) {
+    queryParams.set('patient_id', String(patientId));
+  }
+  queryParams.set('limit', String(limit));
+  queryParams.set('offset', String(offset));
+  return apiFetch(`/rag/audit/sessions?${queryParams.toString()}`, {
+    headers: { ...authHeaders() },
+  });
+}
+
+export async function getRagAuditSessionTurns(sessionId) {
+  return apiFetch(`/rag/audit/session/${encodeURIComponent(String(sessionId))}/turns`, {
+    headers: { ...authHeaders() },
+  });
+}
+
+export async function getRagAuditRuns({ patientId = '', sessionId = '', modelKey = '', limit = 100, offset = 0 } = {}) {
+  const queryParams = new URLSearchParams();
+  if (patientId) {
+    queryParams.set('patient_id', String(patientId));
+  }
+  if (sessionId) {
+    queryParams.set('session_id', String(sessionId));
+  }
+  if (modelKey) {
+    queryParams.set('model_key', String(modelKey));
+  }
+  queryParams.set('limit', String(limit));
+  queryParams.set('offset', String(offset));
+  return apiFetch(`/rag/audit/runs?${queryParams.toString()}`, {
+    headers: { ...authHeaders() },
+  });
+}
+
+export async function getRagAuditTimeline(sessionId) {
+  return apiFetch(`/rag/audit/session/${encodeURIComponent(String(sessionId))}/timeline`, {
+    headers: { ...authHeaders() },
+  });
+}
+
+export async function getRagTrace(traceId) {
+  return apiFetch(`/rag/trace/${encodeURIComponent(String(traceId))}`, {
+    headers: { ...authHeaders() },
   });
 }
 

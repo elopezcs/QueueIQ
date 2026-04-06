@@ -18,6 +18,27 @@ def test_patient_retriever_scoped_to_patient(monkeypatch):
     assert all(item["source_type"] in {"encounter", "medication", "allergy"} for item in items)
 
 
+def test_patient_retriever_prefers_vector_chunks_when_available(monkeypatch):
+    monkeypatch.setattr("API.rag.retrievers.patient_retriever.pgvector_enabled", lambda: True)
+    monkeypatch.setattr("API.rag.retrievers.patient_retriever.embed_text", lambda _: [0.1, 0.2, 0.3])
+    monkeypatch.setattr("API.rag.retrievers.patient_retriever.to_vector_literal", lambda _: "[0.1,0.2,0.3]")
+
+    def fake_fetch_all(query, params=None):
+        text = str(query)
+        if "rag.patient_context_chunks" in text:
+            return [
+                {"source_id": "note_1", "source_type": "clinical_note", "snippet": "Nearest semantic patient note"},
+                {"source_id": "med_1", "source_type": "medication", "snippet": "Lisinopril 10mg daily"},
+            ]
+        return []
+
+    monkeypatch.setattr("API.rag.retrievers.patient_retriever.fetch_all", fake_fetch_all)
+    items = PatientContextRetriever().retrieve(patient_id="pat_1", query="headache medication", limit=3)
+    assert items
+    assert items[0]["source_type"] == "clinical_note"
+    assert any(item["source_type"] == "medication" for item in items)
+
+
 def test_clinic_retriever_returns_faq_rule_docs(monkeypatch):
     monkeypatch.setattr("API.rag.retrievers.clinic_retriever.pgvector_enabled", lambda: False)
 
