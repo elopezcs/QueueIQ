@@ -159,24 +159,82 @@ ollama run gemma3:4b
 
 ---
 
-## 🚀 Next Steps
+## 🚀 Required Bring-Up Steps (From Scratch)
 
-### Configure `.env`
+Follow this exact order to avoid partial setup issues.
+
+### 1) Configure Environment Variables
+
+Set these in repo-root `.env`:
 
 ```bash
 DATABASE_URL=postgresql://postgres:<YOUR_DB_PASSWORD>@localhost:5433/queueiq
+# Optional explicit override (recommended for clarity):
+RAG_DATABASE_URL=postgresql://postgres:<YOUR_DB_PASSWORD>@localhost:5433/queueiq
+
+RAG_ENABLE_AUTO_INIT=true
+RAG_MODEL_PROVIDER=ollama
+RAG_ACTIVE_MODEL=gemma3_4b
+RAG_OLLAMA_BASE_URL=http://127.0.0.1:11434
+RAG_ENABLE_EMBEDDINGS=true
+RAG_EMBEDDING_MODEL=nomic-embed-text
 ```
 
-### Start Backend
+Notes:
+- `DATABASE_URL` is required.
+- `RAG_DATABASE_URL` is optional; if set, it takes precedence for RAG DB access.
+
+---
+
+### 2) Start QueueIQ
+
+Use one startup path:
+
+- Full local stack launcher:
 
 ```bash
-docker compose up --build
+.\.venv\Scripts\python.exe app.py
 ```
+
+- Or backend only (for API testing):
+
+```bash
+.\.venv\Scripts\python.exe -m uvicorn API.main:app --host 127.0.0.1 --port 8000
+```
+
+At startup, QueueIQ auto-initializes RAG schema/tables in PostgreSQL when DB env vars are set.
+
+---
+
+### 3) Verify RAG Health
+
+```bash
+GET http://127.0.0.1:8000/rag/health
+```
+
+Expected:
+- `"database_ready": true`
+- `"pgvector_enabled": true` (or `false` if extension unavailable; lexical fallback still works)
+
+---
+
+### 4) Authenticate and Seed RAG Data (using tools such as Postman)
+
+In non-dev, `POST /rag/seed` requires manager/staff auth.
+
+Typical local flow :
+1. (skip on Dev environment) `POST /auth/demo-login` with manager/staff demo email
+2. (skip on Dev environment) Use returned bearer token
+3. `POST /rag/seed`
+
+---
+
+
 
 ### Access API
 
 ```bash
-http://localhost:8000
+http://127.0.0.1:8000/docs
 ```
 
 ---
