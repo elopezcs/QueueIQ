@@ -1,0 +1,13 @@
+{
+  "training_source": "clinic_historical_data",
+  "rows": 141901,
+  "train_size": 113520,
+  "test_size": 28381,
+  "p50_mae_minutes": 8.964918168173954,
+  "p50_pinball_loss": 4.482459084086977,
+  "p90_pinball_loss": 2.4441926566094265,
+  "p90_coverage": 0.901307212571791,
+  "model_family": "neural_network",
+  "historical_num_doctors": 2,
+  "trained_at": "2026-04-06T18:21:56Z"
+}

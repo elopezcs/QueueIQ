@@ -20,6 +20,7 @@ def main() -> None:
         description="Tune simulation controls, staffing, and prediction behavior while monitoring operational performance.",
         allow_staffing=True,
         allow_retrain=True,
+        allow_wait_time_retrain=True,
         allow_speed_control=True,
     )
     render_dashboard_view(

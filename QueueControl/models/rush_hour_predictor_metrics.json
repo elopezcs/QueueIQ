@@ -1,10 +1,10 @@
 {
-  "accuracy": 0.897713258870371,
-  "roc_auc": 0.9664405732225075,
+  "accuracy": 0.898100842112681,
+  "roc_auc": 0.9666139562532299,
   "train_size": 113520,
   "test_size": 28381,
-  "positive_precision": 0.8744062005167097,
-  "positive_recall": 0.8825706594885598,
-  "positive_f1": 0.8784694603759367,
-  "trained_at": "2026-04-06T15:37:13Z"
+  "positive_precision": 0.8747708715214131,
+  "positive_recall": 0.8831594885598923,
+  "positive_f1": 0.878945165341147,
+  "trained_at": "2026-04-06T18:19:03Z"
 }
