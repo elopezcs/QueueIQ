@@ -18,6 +18,8 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if REPO_ROOT not in sys.path:
 	sys.path.insert(0, REPO_ROOT)
 
+from QueueControl.api_client import QueueControlApiClient
+
 from database.database_manager import DatabaseManager
 
 TABLE_NAME = "clinic_historical_data"
@@ -252,4 +254,5 @@ def train_model() -> None:
 
 
 if __name__ == "__main__":
-	train_model()
+	response = QueueControlApiClient().train_model("wait-time")
+	print(json.dumps(response, indent=2))

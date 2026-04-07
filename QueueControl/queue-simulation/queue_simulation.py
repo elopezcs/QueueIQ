@@ -1,5 +1,3 @@
-import importlib.util
-import json
 import logging
 import os
 import random
@@ -9,18 +7,16 @@ import time
 from datetime import datetime, timedelta
 from html import escape
 
-import joblib
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-from sklearn.metrics import accuracy_score, roc_auc_score
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if REPO_ROOT not in sys.path:
 	sys.path.insert(0, REPO_ROOT)
 
-from database.database_manager import DatabaseManager
+from QueueControl.api_client import QueueControlApiClient
 
 logger = logging.getLogger("queueiq.api")
 
@@ -414,10 +410,10 @@ div[data-baseweb="select"] > div,
 
 class QueueSimulationBackend:
 	def __init__(self) -> None:
-		self.db_manager = DatabaseManager()
-		self.db_manager.init_db()
+		self.api = QueueControlApiClient()
+		self.api.health()
 
-		self.clinics_df = self.db_manager.fetch_clinics().copy()
+		self.clinics_df = self.api.get_clinics_df().copy()
 		self.clinic_names = self.clinics_df["clinic_name"].tolist()
 		self.clinic_id_by_name = dict(zip(self.clinics_df["clinic_name"], self.clinics_df["clinic_id"]))
 		self.sim_config = {
@@ -433,179 +429,56 @@ class QueueSimulationBackend:
 		}
 		self.doctors_free_at = {clinic_name: [datetime.now()] * 2 for clinic_name in self.clinic_names}
 		self.arrivals_paused_for_capacity = False
-
-		script_dir = os.path.dirname(os.path.abspath(__file__))
-		self.model_path = os.path.abspath(
-			os.path.join(script_dir, "..", "models", "rush_hour_predictor_model.joblib")
-		)
-		self.model_metrics_path = os.path.abspath(
-			os.path.join(script_dir, "..", "models", "rush_hour_predictor_metrics.json")
-		)
-		self.wait_time_model_path = os.path.abspath(
-			os.path.join(script_dir, "..", "models", "wait_time_predictor_model.joblib")
-		)
-		self.wait_time_metrics_path = os.path.abspath(
-			os.path.join(script_dir, "..", "models", "wait_time_predictor_metrics.json")
-		)
-		self.training_script_path = os.path.abspath(
-			os.path.join(script_dir, "..", "model-training", "rush_hour_predictor_model.py")
-		)
-		self.wait_time_training_script_path = os.path.abspath(
-			os.path.join(script_dir, "..", "model-training", "wait_time_predictor_model.py")
-		)
 		self.rush_hour_predictor_model = self.load_rush_hour_model()
 		self.model_metrics = self.load_model_metrics()
 		self.wait_time_model = self.load_wait_time_model()
 		self.wait_time_metrics = self.load_wait_time_metrics()
-		self.rush_hour_model_mtime = self.get_artifact_mtime(self.model_path)
-		self.rush_hour_metrics_mtime = self.get_artifact_mtime(self.model_metrics_path)
-		self.wait_time_model_mtime = self.get_artifact_mtime(self.wait_time_model_path)
-		self.wait_time_metrics_mtime = self.get_artifact_mtime(self.wait_time_metrics_path)
 
 		self._simulation_thread: threading.Thread | None = None
 		self._simulation_lock = threading.Lock()
 
 	def retrain_rush_hour_model(self) -> None:
-		spec = importlib.util.spec_from_file_location(
-			"rush_hour_predictor_model", self.training_script_path
-		)
-		if spec is None or spec.loader is None:
-			raise ImportError(f"Unable to load training script from {self.training_script_path}")
-
-		module = importlib.util.module_from_spec(spec)
-		spec.loader.exec_module(module)
-		module.train_model()
+		self.api.train_model("rush-hour")
 		self.rush_hour_predictor_model = self.load_rush_hour_model()
 		self.model_metrics = self.load_model_metrics()
-		self.rush_hour_model_mtime = self.get_artifact_mtime(self.model_path)
-		self.rush_hour_metrics_mtime = self.get_artifact_mtime(self.model_metrics_path)
 
 	def retrain_wait_time_model(self) -> None:
-		spec = importlib.util.spec_from_file_location(
-			"wait_time_predictor_model", self.wait_time_training_script_path
-		)
-		if spec is None or spec.loader is None:
-			raise ImportError(f"Unable to load training script from {self.wait_time_training_script_path}")
-
-		module = importlib.util.module_from_spec(spec)
-		spec.loader.exec_module(module)
-		module.train_model()
+		self.api.train_model("wait-time")
 		self.wait_time_model = self.load_wait_time_model()
 		self.wait_time_metrics = self.load_wait_time_metrics()
-		self.wait_time_model_mtime = self.get_artifact_mtime(self.wait_time_model_path)
-		self.wait_time_metrics_mtime = self.get_artifact_mtime(self.wait_time_metrics_path)
 
 	@staticmethod
 	def get_artifact_mtime(path: str) -> float | None:
-		if not os.path.exists(path):
-			return None
-		return os.path.getmtime(path)
+		return None
 
 	def load_rush_hour_model(self):
-		if not os.path.exists(self.model_path):
-			return None
-		return joblib.load(self.model_path)
+		status_payload = self.api.validate_model("rush-hour")
+		return status_payload if status_payload.get("available") else None
 
 	def load_model_metrics(self) -> dict[str, object]:
 		if self.rush_hour_predictor_model is None:
 			return {}
-
-		if not os.path.exists(self.model_metrics_path):
-			return self.estimate_model_metrics()
-
-		with open(self.model_metrics_path, "r", encoding="utf-8") as metrics_file:
-			return json.load(metrics_file)
+		return dict(self.rush_hour_predictor_model.get("metrics", {}))
 
 	def load_wait_time_model(self) -> dict[str, object] | None:
-		if not os.path.exists(self.wait_time_model_path):
-			return None
-		return joblib.load(self.wait_time_model_path)
+		status_payload = self.api.validate_model("wait-time")
+		return status_payload if status_payload.get("available") else None
 
 	def load_wait_time_metrics(self) -> dict[str, object]:
-		if not os.path.exists(self.wait_time_metrics_path):
+		if self.wait_time_model is None:
 			return {}
-
-		with open(self.wait_time_metrics_path, "r", encoding="utf-8") as metrics_file:
-			return json.load(metrics_file)
+		return dict(self.wait_time_model.get("metrics", {}))
 
 	def refresh_wait_time_artifacts_if_needed(self) -> None:
-		current_model_mtime = self.get_artifact_mtime(self.wait_time_model_path)
-		current_metrics_mtime = self.get_artifact_mtime(self.wait_time_metrics_path)
-
-		model_changed = current_model_mtime != self.wait_time_model_mtime
-		metrics_changed = current_metrics_mtime != self.wait_time_metrics_mtime
-
-		if model_changed:
-			self.wait_time_model = self.load_wait_time_model()
-			self.wait_time_model_mtime = current_model_mtime
-
-		if metrics_changed or (model_changed and current_metrics_mtime is not None):
-			self.wait_time_metrics = self.load_wait_time_metrics()
-			self.wait_time_metrics_mtime = current_metrics_mtime
+		self.wait_time_model = self.load_wait_time_model()
+		self.wait_time_metrics = self.load_wait_time_metrics()
 
 	def refresh_rush_hour_artifacts_if_needed(self) -> None:
-		current_model_mtime = self.get_artifact_mtime(self.model_path)
-		current_metrics_mtime = self.get_artifact_mtime(self.model_metrics_path)
-
-		model_changed = current_model_mtime != self.rush_hour_model_mtime
-		metrics_changed = current_metrics_mtime != self.rush_hour_metrics_mtime
-
-		if model_changed:
-			self.rush_hour_predictor_model = self.load_rush_hour_model()
-			self.rush_hour_model_mtime = current_model_mtime
-
-		if metrics_changed or (model_changed and current_metrics_mtime is not None):
-			self.model_metrics = self.load_model_metrics()
-			self.rush_hour_metrics_mtime = current_metrics_mtime
+		self.rush_hour_predictor_model = self.load_rush_hour_model()
+		self.model_metrics = self.load_model_metrics()
 
 	def estimate_model_metrics(self) -> dict[str, object]:
-		if self.rush_hour_predictor_model is None:
-			return {}
-
-		try:
-			training_df = self.db_manager.fetch_training_data("clinic_historical_data")
-		except Exception:
-			return {}
-
-		feature_names = list(
-			getattr(
-				self.rush_hour_predictor_model,
-				"feature_names_in_",
-				[
-					"is_weekend",
-					"day_sin",
-					"day_cos",
-					"hour_sin",
-					"hour_cos",
-					"queue_length_at_arrival",
-					"arrivals_last_1_hour",
-					"avg_wait_last_1_hour",
-				],
-			)
-		)
-
-		required_columns = feature_names + ["is_surge_imminent"]
-		if training_df.empty or any(column not in training_df.columns for column in required_columns):
-			return {}
-
-		eval_df = training_df[required_columns].replace([np.inf, -np.inf], np.nan).dropna()
-		if eval_df.empty:
-			return {}
-
-		features = eval_df[feature_names]
-		target = eval_df["is_surge_imminent"].astype(int)
-		if target.nunique() < 2:
-			return {}
-
-		predictions = self.rush_hour_predictor_model.predict(features)
-		probabilities = self.rush_hour_predictor_model.predict_proba(features)[:, 1]
-		return {
-			"accuracy": float(accuracy_score(target, predictions)),
-			"roc_auc": float(roc_auc_score(target, probabilities)),
-			"trained_at": "Unavailable",
-			"performance_source": "retrospective",
-			"evaluation_rows": int(len(eval_df)),
-		}
+		return dict(self.model_metrics)
 
 	@staticmethod
 	def get_duration(priority: int) -> int:
@@ -642,36 +515,14 @@ class QueueSimulationBackend:
 		if self.rush_hour_predictor_model is None:
 			return None
 
-		df = self.prepare_queue_df(self.db_manager.fetch_queue()) if queue_df is None else queue_df
-		current_time = datetime.now() if now is None else now
+		try:
+			df = self.api.get_queue_df() if queue_df is None else queue_df
+			prediction = self.api.predict_surge(df, current_time=now)
+		except Exception as exc:
+			logger.warning(f"Unable to fetch rush-hour prediction from API: {exc}")
+			return None
 
-		recent_patients = self.create_empty_queue_df()
-		if not df.empty and "arrival_time" in df.columns:
-			recent_patients = df[df["arrival_time"] >= (current_time - timedelta(hours=1))]
-
-		avg_wait_last_1_hour = 0.0
-		if not recent_patients.empty:
-			avg_wait_last_1_hour = (
-				(current_time - recent_patients["arrival_time"]).dt.total_seconds().mean() / 60.0
-			)
-
-		hour_of_day = current_time.hour
-		day_of_week = current_time.weekday()
-
-		features = pd.DataFrame([
-			{
-				"is_weekend": int(day_of_week >= 5),
-				"day_sin": np.sin(2 * np.pi * day_of_week / 7.0),
-				"day_cos": np.cos(2 * np.pi * day_of_week / 7.0),
-				"hour_sin": np.sin(2 * np.pi * hour_of_day / 24.0),
-				"hour_cos": np.cos(2 * np.pi * hour_of_day / 24.0),
-				"queue_length_at_arrival": len(df),
-				"arrivals_last_1_hour": len(recent_patients),
-				"avg_wait_last_1_hour": avg_wait_last_1_hour,
-			}
-		])
-
-		return round(float(self.rush_hour_predictor_model.predict_proba(features)[0][1]), 4)
+		return round(float(prediction.get("probability", 0.0)), 4)
 
 	def get_surge_probability(
 		self,
@@ -688,7 +539,7 @@ class QueueSimulationBackend:
 		return model_probability
 
 	def get_completed_patient_logs(self, clinic_name: str) -> pd.DataFrame:
-		activity_df = self.prepare_queue_df(self.db_manager.fetch_queue_activity())
+		activity_df = self.prepare_queue_df(self.api.get_queue_activity_df())
 		if activity_df.empty:
 			return activity_df
 
@@ -743,6 +594,8 @@ class QueueSimulationBackend:
 		evaluation_rows = metrics.get("evaluation_rows")
 
 		current_probability = self.get_model_surge_probability(queue_df=queue_df, now=now)
+		if current_probability is None:
+			current_probability = 0.5
 		confidence = min(100.0, abs(current_probability - 0.5) * 200.0)
 		confidence_direction = "surge" if current_probability >= 0.5 else "steady flow"
 
@@ -788,8 +641,7 @@ class QueueSimulationBackend:
 			busy_doctors = sum(1 for free_at in self.doctors_free_at.get(clinic_name, [])[:doctor_count] if free_at > now)
 		utilization = (busy_doctors / doctor_count * 100.0) if doctor_count else 0.0
 
-		activity_df = self.db_manager.fetch_queue_activity()
-		activity_df = self.prepare_queue_df(activity_df)
+		activity_df = self.prepare_queue_df(self.api.get_queue_activity_df())
 		if "seen_by_doctor_time" in activity_df.columns:
 			activity_df["seen_by_doctor_time"] = pd.to_datetime(activity_df["seen_by_doctor_time"])
 
@@ -860,7 +712,7 @@ class QueueSimulationBackend:
 
 	def get_manager_forecasts(self, clinic_name: str) -> list[tuple[str, str, str, str]]:
 		now = datetime.now()
-		queue_df = self.prepare_queue_df(self.db_manager.fetch_queue())
+		queue_df = self.prepare_queue_df(self.api.get_queue_df())
 		surge_probability = self.get_surge_probability(queue_df=queue_df, now=now)
 		arrival_probability_per_tick = self.get_arrival_probability_per_tick(surge_probability)
 		ticks_per_hour = 3600.0 / max(float(self.sim_config["sim_speed"]), 0.5)
@@ -910,61 +762,18 @@ class QueueSimulationBackend:
 		if self.wait_time_model is None:
 			return None
 
-		clinic_id = self.clinic_id_by_name.get(clinic_name)
-		if not clinic_id:
+		try:
+			prediction = self.api.predict_wait_time(
+				clinic_name,
+				self.prepare_queue_df(queue_df),
+				current_time=now,
+				doctor_count=int(self.sim_config["doctors_per_clinic"].get(clinic_name, 1)),
+			)
+		except Exception as exc:
+			logger.warning(f"Unable to fetch wait-time prediction from API: {exc}")
 			return None
 
-		current_time = datetime.now() if now is None else now
-		clinic_df = self.prepare_queue_df(queue_df)
-		recent_df = self.create_empty_queue_df()
-		if not clinic_df.empty:
-			recent_df = clinic_df[clinic_df["arrival_time"] >= (current_time - timedelta(hours=1))]
-
-		avg_wait_last_hour = 0.0
-		if not recent_df.empty:
-			avg_wait_last_hour = float(
-				((current_time - recent_df["arrival_time"]).dt.total_seconds() / 60.0).mean()
-			)
-		elif not clinic_df.empty:
-			avg_wait_last_hour = float(
-				((current_time - clinic_df["arrival_time"]).dt.total_seconds() / 60.0).mean()
-			)
-
-		feature_row = pd.DataFrame([
-			{
-				"clinic_id": clinic_id,
-				"is_weekend": int(current_time.weekday() >= 5),
-				"day_sin": np.sin(2 * np.pi * current_time.weekday() / 7.0),
-				"day_cos": np.cos(2 * np.pi * current_time.weekday() / 7.0),
-				"hour_sin": np.sin(2 * np.pi * current_time.hour / 24.0),
-				"hour_cos": np.cos(2 * np.pi * current_time.hour / 24.0),
-				"queue_length_at_arrival": len(clinic_df),
-				"arrivals_last_1_hour": float(len(recent_df)),
-				"avg_wait_last_1_hour": avg_wait_last_hour,
-			}
-		])
-
-		encoded_row = pd.get_dummies(feature_row, columns=["clinic_id"], prefix="clinic")
-		encoded_row = encoded_row.reindex(
-			columns=list(self.wait_time_model.get("feature_columns", [])),
-			fill_value=0.0,
-		)
-
-		predicted_p50 = max(0.0, float(self.wait_time_model["model"].predict(encoded_row)[0]))
-		clinic_uplifts = self.wait_time_model.get("clinic_p90_uplift_minutes", {})
-		global_uplift = float(self.wait_time_model.get("global_p90_uplift_minutes", 0.0))
-		predicted_p90 = max(
-			predicted_p50,
-			predicted_p50 + float(clinic_uplifts.get(clinic_id, global_uplift)),
-		)
-
-		baseline_doctors = max(1, int(self.wait_time_metrics.get("historical_num_doctors", 2) or 2))
-		current_doctors = max(1, int(self.sim_config["doctors_per_clinic"].get(clinic_name, baseline_doctors)))
-		staffing_factor = baseline_doctors / current_doctors
-
-		predicted_p50 *= staffing_factor
-		predicted_p90 = max(predicted_p50, predicted_p90 * staffing_factor)
-		return predicted_p50, predicted_p90
+		return float(prediction.get("p50_minutes", 0.0)), float(prediction.get("p90_minutes", 0.0))
 
 	def get_wait_time_metrics(
 		self,
@@ -1006,11 +815,11 @@ class QueueSimulationBackend:
 		]
 
 	def mark_patient_no_show(self, record_id: int) -> None:
-		self.db_manager.delete_queue_record(record_id)
+		self.api.delete_queue_record(record_id)
 
 	def retriage_patient(self, record_id: int, priority: int) -> None:
 		est_duration = self.get_duration(priority)
-		self.db_manager.update_patient_triage(record_id, priority, est_duration)
+		self.api.update_patient_triage(record_id, priority, est_duration)
 
 	def start_simulation_thread(self) -> None:
 		with self._simulation_lock:
@@ -1036,7 +845,7 @@ class QueueSimulationBackend:
 			try:
 				current_speed = self.sim_config["sim_speed"]
 
-				df = self.prepare_queue_df(self.db_manager.fetch_queue())
+				df = self.prepare_queue_df(self.api.get_queue_df())
 				clinic_queue_map = self.build_clinic_queue_map(df)
 				now = datetime.now()
 				waiting_count = len(df)
@@ -1073,7 +882,7 @@ class QueueSimulationBackend:
 								seconds=duration_sec
 							)
 
-							self.db_manager.mark_patient_seen(int(patient["record_id"]))
+							self.api.mark_patient_seen(int(patient["record_id"]))
 							waited_min = (now - patient["arrival_time"]).total_seconds() / 60.0
 							logger.info(
 								f"[{clinic_name}] Doc {doctor_index + 1} took Patient {patient['patient_id']} "
@@ -1090,7 +899,7 @@ class QueueSimulationBackend:
 						if random.random() < current_prob:
 							new_id = random.randint(1000, 9999)
 							priority = random.choices([1, 2, 3, 4, 5], weights=[5, 10, 50, 25, 10])[0]
-							self.db_manager.insert_patient(
+							self.api.add_patient(
 								clinic_name,
 								new_id,
 								now,
@@ -1463,7 +1272,7 @@ def render_sidebar(
 		)
 
 		try:
-			sidebar_queue_df = backend.prepare_queue_df(backend.db_manager.fetch_queue())
+			sidebar_queue_df = backend.prepare_queue_df(backend.api.get_queue_df())
 			total_waiting_system = len(sidebar_queue_df)
 		except Exception:
 			sidebar_queue_df = backend.create_empty_queue_df()
@@ -1566,7 +1375,7 @@ def render_sidebar(
 			if st.button("Add patient to selected clinic", key=f"btn_add_patient_{title}"):
 				now = datetime.now()
 				new_id = random.randint(1000, 9999)
-				backend.db_manager.insert_patient(
+				backend.api.add_patient(
 					selected_clinic,
 					new_id,
 					now,
@@ -1587,7 +1396,7 @@ def get_dashboard_data(
 	now: datetime | None = None,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame], pd.DataFrame, float]:
 	try:
-		full_df = backend.prepare_queue_df(backend.db_manager.fetch_queue())
+		full_df = backend.prepare_queue_df(backend.api.get_queue_df())
 	except Exception as exc:
 		st.error(f"Database error: {exc}")
 		full_df = backend.create_empty_queue_df()
