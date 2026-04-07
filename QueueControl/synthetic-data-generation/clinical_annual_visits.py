@@ -15,6 +15,7 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 from database.database_manager import DatabaseManager
+from QueueControl.api_client import QueueControlApiClient
 
 @dataclass(slots=True)
 class ClinicalAnnualVisitsConfig:
@@ -253,8 +254,8 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
-    generator = ClinicalAnnualVisitsGenerator()
-    generator.generate_data(persist_to_db=True)
+    response = QueueControlApiClient().collect_data()
+    logger.info("Synthetic data collection completed through API: %s", response)
 
 
 if __name__ == "__main__":

@@ -17,6 +17,8 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
+from QueueControl.api_client import QueueControlApiClient
+
 # -----------------------------
 # DATABASE & ENVIRONMENT
 # -----------------------------
@@ -175,4 +177,5 @@ def train_model():
     print(f"Model evaluation metrics saved successfully to {MODEL_METRICS_PATH}")
 
 if __name__ == "__main__":
-    train_model()
+    response = QueueControlApiClient().train_model("rush-hour")
+    print(json.dumps(response, indent=2))
