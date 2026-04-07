@@ -1,10 +1,10 @@
 {
-  "accuracy": 0.898100842112681,
-  "roc_auc": 0.9666139562532299,
-  "train_size": 113520,
-  "test_size": 28381,
-  "positive_precision": 0.8747708715214131,
-  "positive_recall": 0.8831594885598923,
-  "positive_f1": 0.878945165341147,
-  "trained_at": "2026-04-06T18:19:03Z"
+  "accuracy": 0.8843174019174302,
+  "roc_auc": 0.9579616479972866,
+  "train_size": 113068,
+  "test_size": 28267,
+  "positive_precision": 0.8629018540568124,
+  "positive_recall": 0.8595391392748221,
+  "positive_f1": 0.8612172141583906,
+  "trained_at": "2026-04-07T00:25:52Z"
 }

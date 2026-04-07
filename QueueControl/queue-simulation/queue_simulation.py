@@ -85,6 +85,37 @@ GLOBAL_STYLES = """
   padding-top: 1.5rem;
 }
 
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] .stMarkdown,
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] small {
+  color: var(--color-text);
+}
+
+[data-testid="stSidebar"] div[data-testid="stMetricLabel"] {
+  color: var(--color-muted);
+}
+
+[data-testid="stSidebar"] div[data-testid="stMetricValue"] {
+  color: var(--color-azure);
+}
+
+[data-testid="stSidebar"] .stSelectbox label,
+[data-testid="stSidebar"] .stToggle label,
+[data-testid="stSidebar"] .stSlider label {
+  color: var(--color-text) !important;
+}
+
+[data-testid="stSidebar"] div[data-baseweb="select"] > div {
+  color: var(--color-text) !important;
+}
+
+[data-testid="stSidebar"] div[data-baseweb="select"] * {
+  color: var(--color-text) !important;
+  fill: var(--color-text) !important;
+}
+
 .sidebar-brand {
   background: linear-gradient(135deg, var(--color-azure) 0%, var(--color-water) 100%);
   border-radius: 20px;
@@ -307,10 +338,15 @@ div[data-testid="stPlotlyChart"] {
   border-radius: 12px;
   border: 1px solid var(--color-azure);
   background: var(--color-azure);
-  color: #ffffff;
+  color: #ffffff !important;
   font-weight: 600;
   padding: 0.7rem 1rem;
   transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.stButton > button * {
+  color: #ffffff !important;
+  fill: #ffffff !important;
 }
 
 .stDownloadButton > button {
@@ -333,6 +369,7 @@ div[data-testid="stPlotlyChart"] {
 .stButton > button:hover {
   background: var(--color-azure-dark);
   border-color: var(--color-azure-dark);
+  color: #ffffff !important;
   transform: translateY(-1px);
 }
 
