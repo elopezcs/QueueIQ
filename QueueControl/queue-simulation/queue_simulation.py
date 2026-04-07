@@ -338,10 +338,15 @@ div[data-testid="stPlotlyChart"] {
   border-radius: 12px;
   border: 1px solid var(--color-azure);
   background: var(--color-azure);
-  color: #ffffff;
+  color: #ffffff !important;
   font-weight: 600;
   padding: 0.7rem 1rem;
   transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.stButton > button * {
+  color: #ffffff !important;
+  fill: #ffffff !important;
 }
 
 .stDownloadButton > button {
@@ -364,6 +369,7 @@ div[data-testid="stPlotlyChart"] {
 .stButton > button:hover {
   background: var(--color-azure-dark);
   border-color: var(--color-azure-dark);
+  color: #ffffff !important;
   transform: translateY(-1px);
 }
 
