@@ -85,6 +85,37 @@ GLOBAL_STYLES = """
   padding-top: 1.5rem;
 }
 
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] .stMarkdown,
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] small {
+  color: var(--color-text);
+}
+
+[data-testid="stSidebar"] div[data-testid="stMetricLabel"] {
+  color: var(--color-muted);
+}
+
+[data-testid="stSidebar"] div[data-testid="stMetricValue"] {
+  color: var(--color-azure);
+}
+
+[data-testid="stSidebar"] .stSelectbox label,
+[data-testid="stSidebar"] .stToggle label,
+[data-testid="stSidebar"] .stSlider label {
+  color: var(--color-text) !important;
+}
+
+[data-testid="stSidebar"] div[data-baseweb="select"] > div {
+  color: var(--color-text) !important;
+}
+
+[data-testid="stSidebar"] div[data-baseweb="select"] * {
+  color: var(--color-text) !important;
+  fill: var(--color-text) !important;
+}
+
 .sidebar-brand {
   background: linear-gradient(135deg, var(--color-azure) 0%, var(--color-water) 100%);
   border-radius: 20px;

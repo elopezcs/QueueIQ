@@ -94,15 +94,26 @@ class DatabaseManager:
                 ADD COLUMN IF NOT EXISTS clinic_id VARCHAR(100);
             """))
             conn.execute(text("""
-                UPDATE clinic_historical_data AS historical
-                SET clinic_id = clinics.clinic_id
-                FROM clinics
-                WHERE historical.clinic_id IS NULL
-                  AND historical.clinic_name = clinics.clinic_name;
-            """))
-            conn.execute(text("""
-                ALTER TABLE clinic_historical_data
-                ALTER COLUMN clinic_name DROP NOT NULL;
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = 'public'
+                          AND table_name = 'clinic_historical_data'
+                          AND column_name = 'clinic_name'
+                    ) THEN
+                        UPDATE clinic_historical_data AS historical
+                        SET clinic_id = clinics.clinic_id
+                        FROM clinics
+                        WHERE historical.clinic_id IS NULL
+                          AND historical.clinic_name = clinics.clinic_name;
+
+                        ALTER TABLE clinic_historical_data
+                        ALTER COLUMN clinic_name DROP NOT NULL;
+                    END IF;
+                END
+                $$;
             """))
 
     def fetch_queue(self) -> pd.DataFrame:
