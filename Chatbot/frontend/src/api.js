@@ -173,6 +173,21 @@ export async function createAppointment(clinicId, scheduledFor, description, ses
   });
 }
 
+export async function createQueuePatientRecord(payload) {
+  return apiFetch('/queuecontrol/create-queue-patient-record', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({
+      clinic_name: payload.clinicName,
+      patient_id: payload.patientId,
+      arrival_time: payload.arrivalTime,
+      priority: payload.priority,
+      est_duration: payload.estDuration ?? null,
+      chat_session_id: payload.chatSessionId ?? null,
+    }),
+  });
+}
+
 export async function startChat(clinicId) {
   return apiFetch('/rag/chat/start', {
     method: 'POST',

@@ -123,6 +123,10 @@ def queue_records_to_df(queue_records: list[dict[str, Any]]) -> pd.DataFrame:
     return df
 
 
+def get_duration(priority: int) -> int:
+    return {1: 60, 2: 40, 3: 20, 4: 10, 5: 5}[int(priority)]
+
+
 def _load_json_file(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -156,19 +160,29 @@ def get_queue_activity() -> list[dict[str, Any]]:
 
 def add_queue_patient(
     clinic_name: str,
-    patient_id: int,
+    patient_id: str,
     arrival_time: datetime,
     priority: int,
-    est_duration: int,
+    est_duration: int | None = None,
+    chat_session_id: str | None = None,
 ) -> dict[str, Any]:
     db_manager = _build_db_manager()
-    db_manager.insert_patient(clinic_name, patient_id, arrival_time, priority, est_duration)
+    resolved_duration = int(est_duration) if est_duration is not None else get_duration(priority)
+    db_manager.insert_patient(
+        clinic_name,
+        patient_id,
+        arrival_time,
+        priority,
+        resolved_duration,
+        chat_session_id,
+    )
     return {
         "clinic_name": clinic_name,
         "patient_id": patient_id,
         "arrival_time": arrival_time.isoformat(),
         "priority": priority,
-        "est_duration": est_duration,
+        "est_duration": resolved_duration,
+        "chat_session_id": chat_session_id,
     }
 
 

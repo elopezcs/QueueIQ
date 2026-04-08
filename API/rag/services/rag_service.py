@@ -807,6 +807,24 @@ class RagService:
             "session_output": output_rows[0] if output_rows else None,
         }
 
+    def public_intake_summary(self, *, session_id: str) -> dict[str, Any] | None:
+        rows = fetch_all(
+            """
+            SELECT session_id,
+                   visit_category,
+                   urgency_band,
+                   explanation,
+                   wait_p50_minutes,
+                   wait_p90_minutes,
+                   created_at
+            FROM rag.chat_outputs
+            WHERE session_id=%s
+            LIMIT 1
+            """,
+            (session_id,),
+        )
+        return rows[0] if rows else None
+
     def seed(self) -> dict[str, Any]:
         if not rag_db_enabled():
             return {"ok": False, "patients_seeded": 0, "clinics_seeded": 0, "notes": ["DATABASE_URL not configured"]}
