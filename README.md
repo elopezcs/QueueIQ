@@ -2,7 +2,7 @@
 
 QueueIQ is a unified workspace with two product modules:
 - `Chatbot/` for pre-arrival intake, appointment readiness, and admin review
-- `QueueControl/` for live queue simulation, monitoring, and queue APIs
+- `QueueControl/` for live queue simulation, monitoring, and dashboard workflows
 
 The repo root is the common entry point for the project.
 
@@ -108,7 +108,7 @@ This single launcher starts:
 - Chatbot backend on `http://127.0.0.1:8000/docs`
 - Chatbot frontend on `http://127.0.0.1:5173`
 - QueueControl simulator in the background
-- QueueControl backend on `http://127.0.0.1:8001/docs`
+- QueueControl backend service on port `8001`
 - QueueControl dashboard on `http://127.0.0.1:8501`
 
 Keep that terminal open. Press `Ctrl+C` there to stop every process started by the launcher.
@@ -192,7 +192,6 @@ macOS or Linux:
 After startup, confirm these URLs load:
 - Chatbot frontend: `http://127.0.0.1:5173`
 - Chatbot backend docs: `http://127.0.0.1:8000/docs`
-- QueueControl backend docs: `http://127.0.0.1:8001/docs`
 - QueueControl dashboard: `http://127.0.0.1:8501`
 
 ## Local Auth Database
@@ -426,4 +425,5 @@ Useful flags:
 - `--patient-id <id>`: ingest only one patient from a batch file
 - `--skip-chunks`: skip `rag.patient_context_chunks` rebuild
 - `--continue-on-error`: process remaining records after a failure
+
 

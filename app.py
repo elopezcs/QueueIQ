@@ -101,7 +101,7 @@ def _build_specs() -> tuple[LaunchSpec, ...]:
     return (
         LaunchSpec(
             key="chatbot-backend",
-            name="Chatbot Backend",
+            name="QueueIQ API",
             cwd=ROOT_DIR,
             command=(python, "-m", "uvicorn", "API.main:app", "--host", LOCAL_HOST, "--port", "8000"),
             url="http://127.0.0.1:8000/docs",
@@ -315,11 +315,7 @@ def run_workspace_launcher() -> int:
         print()
         print("QueueIQ is running.")
         print("- Chatbot frontend: http://127.0.0.1:5173")
-        print("- Chatbot backend:  http://127.0.0.1:8000/docs")
-        print(f"- Patient dashboard:   http://{LOCAL_HOST}:{PATIENT_DASHBOARD_PORT}")
-        print(f"- Reception dashboard: http://{LOCAL_HOST}:{RECEPTION_DASHBOARD_PORT}")
-        print(f"- Manager dashboard:   http://{LOCAL_HOST}:{MANAGER_DASHBOARD_PORT}")
-        print()
+        print("- QueueIQ API:  http://127.0.0.1:8000/docs")`r`n        print(f"- Patient dashboard:   http://{LOCAL_HOST}:{PATIENT_DASHBOARD_PORT}")`r`n        print(f"- Reception dashboard: http://{LOCAL_HOST}:{RECEPTION_DASHBOARD_PORT}")`r`n        print(f"- Manager dashboard:   http://{LOCAL_HOST}:{MANAGER_DASHBOARD_PORT}")`r`n        print()
         print("Press Ctrl+C in this terminal to stop every process started by the launcher.")
 
         while True:
@@ -447,3 +443,7 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+
+
