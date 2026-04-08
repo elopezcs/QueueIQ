@@ -150,3 +150,13 @@ class RagAuditTimelineOut(BaseModel):
     llm_runs: list[RagAuditRunItem]
     session_output: RagAuditSessionOutputItem | None = None
 
+
+class PublicTraceabilitySummaryOut(BaseModel):
+    session_id: str
+    visit_category: str
+    urgency_band: Literal["low", "medium", "high"]
+    explanation: str
+    wait_p50_minutes: int = Field(ge=0)
+    wait_p90_minutes: int = Field(ge=0)
+    created_at: datetime
+

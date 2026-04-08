@@ -12,7 +12,7 @@ ModelType = Literal["rush-hour", "wait-time"]
 class QueueRecordIn(BaseModel):
     record_id: int | None = None
     clinic_name: str
-    patient_id: int
+    patient_id: str | int
     arrival_time: datetime
     priority: int = Field(ge=1, le=5)
     est_duration: int = Field(ge=1)
@@ -47,10 +47,11 @@ class PredictWaitTimeRequest(BaseModel):
 
 class QueuePatientCreateRequest(BaseModel):
     clinic_name: str
-    patient_id: int
+    patient_id: str
     arrival_time: datetime
     priority: int = Field(ge=1, le=5)
-    est_duration: int = Field(ge=1)
+    est_duration: int | None = Field(default=None, ge=1)
+    chat_session_id: str | None = None
 
 
 class QueueTriageUpdateRequest(BaseModel):

@@ -3,6 +3,7 @@ import {
   chatTurn,
   clearStoredToken,
   createAppointment,
+  createQueuePatientRecord,
   createStaffAccount,
   demoLogin,
   endChat,
@@ -86,6 +87,16 @@ function toAppointmentDescription(results) {
     .join(': ')
     .trim();
   return combined ? combined.slice(0, 280) : null;
+}
+function mapUrgencyBandToPriority(urgencyBand) {
+  const normalized = String(urgencyBand || '').trim().toLowerCase();
+  if (normalized === 'low') {
+    return 1;
+  }
+  if (normalized === 'high') {
+    return 5;
+  }
+  return 3;
 }
 export default function App() {
   const [currentPage, setCurrentPage] = useState('home');
@@ -222,6 +233,20 @@ export default function App() {
     setBookingLoading(true);
     setBookingNotice('');
     try {
+      const queuePriority = mapUrgencyBandToPriority(assessment.results?.urgency_band);
+      const queueClinicName = selectedClinic?.name || assessment.clinicName || '';
+      if (!queueClinicName) {
+        throw new Error('Unable to identify the selected clinic name for queue intake.');
+      }
+
+      await createQueuePatientRecord({
+        clinicName: queueClinicName,
+        patientId: currentUser.patient_id,
+        arrivalTime: new Date().toISOString(),
+        priority: queuePriority,
+        chatSessionId: assessment.sessionId || null,
+      });
+
       await createAppointment(
         assessment.clinicId,
         new Date().toISOString(),
@@ -507,6 +532,7 @@ export default function App() {
     const assessment = {
       sessionId,
       clinicId: targetClinicId,
+      clinicName: selectedClinic?.name || '',
       results,
     };
     if (!currentUser) {

@@ -135,12 +135,14 @@ def get_queue_activity() -> dict[str, object]:
 @router.post("/queuecontrol/create-queue-patient-record", status_code=status.HTTP_201_CREATED)
 def add_queue_patient(payload: QueuePatientCreateRequest) -> dict[str, object]:
     try:
+        est_duration = payload.est_duration if payload.est_duration is not None else services.get_duration(payload.priority)
         patient = services.add_queue_patient(
             clinic_name=payload.clinic_name,
             patient_id=payload.patient_id,
             arrival_time=payload.arrival_time,
             priority=payload.priority,
-            est_duration=payload.est_duration,
+            est_duration=est_duration,
+            chat_session_id=payload.chat_session_id,
         )
         return {"status": "ok", "patient": patient}
     except Exception as exc:

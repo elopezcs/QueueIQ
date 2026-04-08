@@ -55,10 +55,11 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS clinic_queue (
                     record_id SERIAL PRIMARY KEY,
                     clinic_name VARCHAR(100) NOT NULL,
-                    patient_id INTEGER NOT NULL,
+                    patient_id TEXT NOT NULL,
                     arrival_time TIMESTAMP NOT NULL,
                     priority INTEGER NOT NULL,
                     est_duration INTEGER NOT NULL,
+                    chat_session_id VARCHAR(120) NULL,
                     seen_by_doctor_time TIMESTAMP NULL
                 );
             """))
@@ -90,6 +91,28 @@ class DatabaseManager:
                 ADD COLUMN IF NOT EXISTS seen_by_doctor_time TIMESTAMP NULL;
             """))
             conn.execute(text("""
+                ALTER TABLE clinic_queue
+                ADD COLUMN IF NOT EXISTS chat_session_id VARCHAR(120) NULL;
+            """))
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = 'public'
+                          AND table_name = 'clinic_queue'
+                          AND column_name = 'patient_id'
+                          AND data_type <> 'text'
+                    ) THEN
+                        ALTER TABLE clinic_queue
+                        ALTER COLUMN patient_id TYPE TEXT
+                        USING patient_id::TEXT;
+                    END IF;
+                END
+                $$;
+            """))
+            conn.execute(text("""
                 ALTER TABLE clinic_historical_data
                 ADD COLUMN IF NOT EXISTS clinic_id VARCHAR(100);
             """))
@@ -118,7 +141,7 @@ class DatabaseManager:
 
     def fetch_queue(self) -> pd.DataFrame:
         query = text("""
-            SELECT record_id, clinic_name, patient_id, arrival_time, priority, est_duration
+            SELECT record_id, clinic_name, patient_id, arrival_time, priority, est_duration, chat_session_id
             FROM clinic_queue
             WHERE seen_by_doctor_time IS NULL
             ORDER BY clinic_name, priority ASC, arrival_time ASC
@@ -128,7 +151,7 @@ class DatabaseManager:
 
     def fetch_queue_activity(self) -> pd.DataFrame:
         query = text("""
-            SELECT record_id, clinic_name, patient_id, arrival_time, priority, est_duration, seen_by_doctor_time
+            SELECT record_id, clinic_name, patient_id, arrival_time, priority, est_duration, chat_session_id, seen_by_doctor_time
             FROM clinic_queue
             ORDER BY clinic_name, arrival_time ASC
         """)
@@ -144,17 +167,26 @@ class DatabaseManager:
         with self.engine.connect() as conn:
             return pd.read_sql_query(query, conn)
 
-    def insert_patient(self, clinic_name: str, patient_id: int, arrival_time: pd.Timestamp, priority: int, est_duration: int):
+    def insert_patient(
+        self,
+        clinic_name: str,
+        patient_id: str,
+        arrival_time: pd.Timestamp,
+        priority: int,
+        est_duration: int,
+        chat_session_id: str | None = None,
+    ):
         with self.engine.begin() as conn:
             conn.execute(text("""
-                INSERT INTO clinic_queue (clinic_name, patient_id, arrival_time, priority, est_duration, seen_by_doctor_time)
-                VALUES (:clinic_name, :patient_id, :arrival_time, :priority, :est_duration, NULL)
+                INSERT INTO clinic_queue (clinic_name, patient_id, arrival_time, priority, est_duration, chat_session_id, seen_by_doctor_time)
+                VALUES (:clinic_name, :patient_id, :arrival_time, :priority, :est_duration, :chat_session_id, NULL)
             """), {
                 "clinic_name": clinic_name,
                 "patient_id": patient_id,
                 "arrival_time": arrival_time,
                 "priority": priority,
                 "est_duration": est_duration,
+                "chat_session_id": chat_session_id,
             })
 
     def mark_patient_seen(self, record_id: int):
