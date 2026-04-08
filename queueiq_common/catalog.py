@@ -65,7 +65,7 @@ QUEUEIQ_MODULES: tuple[ProductModule, ...] = (
         highlights=(
             "Streamlit dashboard for live queue visibility",
             "Simulation engine backed by queue data and trained model artifacts",
-            "FastAPI queue-control endpoints with Swagger docs",
+            "Internal backend service for queue processing",
         ),
         run_steps=(
             ".\\.venv\\Scripts\\python.exe QueueControl\\queue-simulation\\backend-queue-simulation.py",
@@ -78,12 +78,6 @@ QUEUEIQ_MODULES: tuple[ProductModule, ...] = (
                 url="http://127.0.0.1:8501",
                 description="Live queue simulation dashboard",
             ),
-            ServiceEndpoint(
-                name="Queue API",
-                url="http://127.0.0.1:8001/docs",
-                description="FastAPI queue endpoints and Swagger",
-                health_url="http://127.0.0.1:8001/health",
-            ),
         ),
     ),
 )
@@ -95,3 +89,4 @@ COMMON_LIBRARY_NOTES: tuple[str, ...] = (
     "Keep repo-wide ignores in the root `.gitignore` instead of app-specific duplicates.",
     "Treat the root package as the place for shared project metadata and launcher utilities.",
 )
+

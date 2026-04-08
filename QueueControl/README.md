@@ -1,6 +1,6 @@
 # QueueIQ QueueControl
 
-QueueControl handles rush-hour simulations, queue management, the live dashboard, and queue APIs.
+QueueControl handles rush-hour simulations, queue management, the live dashboard, and internal backend services.
 
 ## Preferred local run
 
@@ -15,7 +15,7 @@ python -m venv .venv
 
 That launcher starts:
 - QueueControl simulator in the background
-- QueueControl backend on `http://127.0.0.1:8001/docs`
+- QueueControl backend service on port `8001`
 - QueueControl dashboard on `http://127.0.0.1:8501`
 
 ## Running only QueueControl simulation
@@ -40,4 +40,5 @@ Historical Clinical Synthetic Data:
 
 ## Notes
 - Use the root `requirements.txt` as the shared dependency file for the full workspace.
-- The simulator keeps the queue data clinic_queue in Postgresql local database  moving so the dashboard and queue API have live data to show.
+- The simulator keeps the queue data clinic_queue in the local PostgreSQL database moving so the dashboard and internal backend services have live data to use.
+
