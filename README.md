@@ -324,6 +324,7 @@ For `POST /rag/chat/turn`, the current execution path is:
 Notes:
 - The active turn path uses intake orchestrator prompts.
 - Clinic knowledge retrieval tables are still used by retrieval/debug flows (for example `/rag/retrieve/debug`) and seed generation.
+- Demo-only prompt trace logging can be enabled with `ENABLE_PROMPT_LOGGING=true`. When enabled, full constructed prompts are appended per session under `Chatbot/backend/logs/prompts/`.
 
 ### Environment Variables
 
@@ -342,12 +343,15 @@ RAG_ACTIVE_MODEL=gemma3_4b
 RAG_OLLAMA_BASE_URL=http://127.0.0.1:11434
 RAG_ENABLE_EMBEDDINGS=true
 RAG_EMBEDDING_MODEL=nomic-embed-text
+ENABLE_PROMPT_LOGGING=false
 
 # Alternative provider mode:
 # RAG_MODEL_PROVIDER=openai_compatible
 # RAG_OPENAI_BASE_URL=http://127.0.0.1:8005/v1
 # RAG_OPENAI_API_KEY=local-dev-key
 ```
+
+`ENABLE_PROMPT_LOGGING` is intended for local demos/debugging visibility only and can include sensitive prompt content. Keep it disabled in production.
 
 Supported active models:
 - `gemma3_4b`

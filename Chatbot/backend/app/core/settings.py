@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     rag_ollama_base_url: str = Field(default="http://127.0.0.1:11434", alias="RAG_OLLAMA_BASE_URL")
     rag_openai_base_url: str = Field(default="http://127.0.0.1:8005/v1", alias="RAG_OPENAI_BASE_URL")
     rag_openai_api_key: str = Field(default="local-dev-key", alias="RAG_OPENAI_API_KEY")
+    enable_prompt_logging: bool = Field(default=False, alias="ENABLE_PROMPT_LOGGING")
 
     class Config:
         env_file = ".env"

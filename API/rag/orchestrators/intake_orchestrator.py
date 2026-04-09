@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from API.rag.model_adapters.registry import active_adapter, active_model
+from API.rag.prompt_logging import log_constructed_prompt
 from API.rag.prompts.intake_templates import (
     DEFAULT_DISCLAIMERS,
     final_classification_prompts,
@@ -199,9 +200,43 @@ class RagIntakeOrchestrator:
         )
         return msg, DEFAULT_DISCLAIMERS
 
-    def _generate_structured(self, *, system_prompt: str, user_prompt: str) -> dict[str, Any]:
+    def _generate_structured(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        session_id: str | None = None,
+        clinic_id: str | None = None,
+        patient_id: str | None = None,
+        endpoint: str | None = None,
+        retrieval_mode: str | None = None,
+        user_query: str | None = None,
+    ) -> dict[str, Any]:
         adapter = active_adapter()
         model = active_model()
+        provider = str(settings.rag_model_provider or "").strip().lower()
+        if provider == "openai_compatible":
+            prompt_payload = json.dumps(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                ensure_ascii=False,
+                indent=2,
+            )
+        else:
+            prompt_payload = f"{system_prompt}\n\n{user_prompt}"
+        log_constructed_prompt(
+            session_id=session_id or "unknown_session",
+            user_query=user_query or "",
+            constructed_prompt=prompt_payload,
+            clinic_id=clinic_id,
+            patient_id=patient_id,
+            model_name=model.model_name,
+            provider=provider or None,
+            endpoint=endpoint,
+            retrieval_mode=retrieval_mode,
+        )
         data = adapter.generate_structured(
             model_name=model.model_name,
             system_prompt=system_prompt,
@@ -221,6 +256,11 @@ class RagIntakeOrchestrator:
         clinic: dict[str, Any],
         transcript: list[dict[str, Any]],
         patient_context: str | None = None,
+        session_id: str | None = None,
+        clinic_id: str | None = None,
+        patient_id: str | None = None,
+        endpoint: str | None = None,
+        retrieval_mode: str | None = None,
     ) -> tuple[str, bool, dict[str, int]]:
         turn_count = sum(1 for message in transcript if str(message.get("role") or "").lower() == "user")
         transcript_text = transcript_to_text(transcript)
@@ -246,7 +286,21 @@ class RagIntakeOrchestrator:
         )
         data: dict[str, Any] = {}
         try:
-            data = self._generate_structured(system_prompt=system_prompt, user_prompt=user_prompt)
+            latest_user_query = ""
+            for message in reversed(transcript):
+                if str(message.get("role") or "").lower() == "user":
+                    latest_user_query = str(message.get("content") or "")
+                    break
+            data = self._generate_structured(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                session_id=session_id,
+                clinic_id=clinic_id or str(clinic.get("id") or ""),
+                patient_id=patient_id,
+                endpoint=endpoint or "/rag/chat/turn",
+                retrieval_mode=retrieval_mode,
+                user_query=latest_user_query,
+            )
         except Exception:
             data = {}
 
@@ -291,6 +345,12 @@ class RagIntakeOrchestrator:
         clinic: dict[str, Any],
         transcript: list[dict[str, Any]],
         patient_context: str | None = None,
+        session_id: str | None = None,
+        clinic_id: str | None = None,
+        patient_id: str | None = None,
+        endpoint: str | None = None,
+        retrieval_mode: str | None = None,
+        user_query: str | None = None,
     ) -> dict[str, Any]:
         transcript_text = transcript_to_text(transcript)
         clinic_context = format_clinic_context(clinic)
@@ -307,7 +367,16 @@ class RagIntakeOrchestrator:
                 patient_context=patient_context,
             )
             try:
-                data = self._generate_structured(system_prompt=system_prompt, user_prompt=user_prompt)
+                data = self._generate_structured(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    session_id=session_id,
+                    clinic_id=clinic_id or str(clinic.get("id") or ""),
+                    patient_id=patient_id,
+                    endpoint=endpoint or "/rag/chat/end",
+                    retrieval_mode=retrieval_mode,
+                    user_query=user_query or "",
+                )
             except Exception:
                 data = {}
             urgency_band = str(data.get("urgency_band", "medium")).lower()
