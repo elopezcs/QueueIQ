@@ -471,6 +471,11 @@ class RagService:
                 clinic=clinic,
                 transcript=transcript,
                 patient_context=patient_context,
+                session_id=session_id,
+                clinic_id=str(session["clinic_id"]),
+                patient_id=patient_id,
+                endpoint="/rag/chat/turn",
+                retrieval_mode=route,
             )
         except Exception as exc:
             status = "llm_error"
@@ -549,6 +554,12 @@ class RagService:
             clinic=clinic,
             transcript=transcript,
             patient_context=patient_context,
+            session_id=session_id,
+            clinic_id=str(session["clinic_id"]),
+            patient_id=patient_id,
+            endpoint="/rag/chat/end",
+            retrieval_mode="finalize",
+            user_query=(user_messages[-1] if user_messages else "session_finalize"),
         )
         outputs["session_id"] = session_id
 
