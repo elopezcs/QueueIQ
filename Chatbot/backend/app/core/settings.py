@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
+    voice_input_enabled: bool = Field(default=False, alias="VOICE_INPUT_ENABLED")
+    voice_output_enabled: bool = Field(default=False, alias="VOICE_OUTPUT_ENABLED")
+    voice_transcription_provider: str = Field(default="openai", alias="VOICE_TRANSCRIPTION_PROVIDER")
+    voice_max_duration_seconds: int = Field(default=30, alias="VOICE_MAX_DURATION_SECONDS")
 
     # Auth
     auth_secret: str = Field(default="dev-auth-secret", alias="AUTH_SECRET")

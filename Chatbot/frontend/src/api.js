@@ -215,6 +215,22 @@ export async function endChat(sessionId) {
   });
 }
 
+export async function getVoiceConfig() {
+  return apiFetch('/rag/voice/config', {
+    headers: { ...authHeaders() },
+  });
+}
+
+export async function transcribeVoiceAudio(blob, filename = 'recording.webm') {
+  const formData = new FormData();
+  formData.append('file', blob, filename);
+  return apiFetch('/rag/chat/transcribe', {
+    method: 'POST',
+    headers: { ...authHeaders() },
+    body: formData,
+  });
+}
+
 export async function getRagAuditSessions({ patientId = '', limit = 50, offset = 0 } = {}) {
   const queryParams = new URLSearchParams();
   if (patientId) {
