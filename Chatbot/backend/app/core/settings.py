@@ -1,5 +1,5 @@
-from pydantic_settings import BaseSettings
 from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -12,7 +12,6 @@ class Settings(BaseSettings):
     cors_allow_origins: list[str] = Field(
         default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173"]
     )
-
 
     # Config
     clinics_config_path: str = Field(default="app/config/clinics.yaml", alias="CLINICS_CONFIG_PATH")
@@ -59,9 +58,7 @@ class Settings(BaseSettings):
     enable_prompt_logging: bool = Field(default=False, alias="ENABLE_PROMPT_LOGGING")
     prompt_log_format: str = Field(default="both", alias="PROMPT_LOG_FORMAT")
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 settings = Settings()

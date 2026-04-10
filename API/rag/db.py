@@ -225,6 +225,14 @@ CREATE TABLE IF NOT EXISTS rag.patient_chat_messages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS rag.clinics (
+  clinic_id TEXT PRIMARY KEY,
+  clinic_name TEXT NOT NULL,
+  city TEXT,
+  timezone TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS rag.chat_turns (
   turn_id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES rag.patient_chat_sessions(session_id),
@@ -240,14 +248,6 @@ CREATE TABLE IF NOT EXISTS rag.chat_turns (
   started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   completed_at TIMESTAMPTZ,
   latency_ms INTEGER
-);
-
-CREATE TABLE IF NOT EXISTS rag.clinics (
-  clinic_id TEXT PRIMARY KEY,
-  clinic_name TEXT NOT NULL,
-  city TEXT,
-  timezone TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS rag.clinic_documents (
@@ -513,4 +513,5 @@ def to_vector_literal(values: list[float], dimensions: int | None = None) -> str
     if len(clean) < dims:
         clean.extend([0.0] * (dims - len(clean)))
     return "[" + ",".join(f"{v:.8f}" for v in clean) + "]"
+
 
