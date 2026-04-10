@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 
 CREATE TABLE IF NOT EXISTS appointments (
   appointment_id TEXT PRIMARY KEY,
+  booking_token TEXT UNIQUE,
   patient_id TEXT NOT NULL,
   clinic_id TEXT NOT NULL,
   session_id TEXT,
@@ -97,5 +98,6 @@ CREATE INDEX IF NOT EXISTS idx_auth_otps_email ON auth_otps(email);
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_patient_id ON auth_sessions(patient_id);
 CREATE INDEX IF NOT EXISTS idx_appointments_patient_id ON appointments(patient_id);
 CREATE INDEX IF NOT EXISTS idx_appointments_scheduled_for ON appointments(scheduled_for);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_appointments_booking_token ON appointments(booking_token);
 CREATE INDEX IF NOT EXISTS idx_notification_logs_appointment_id ON notification_logs(appointment_id);
 

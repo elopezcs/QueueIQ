@@ -12,6 +12,7 @@ function menuItemsForRole(role) {
   }
   if (normalizedRole === 'manager') {
     return [
+      { id: 'dashboard', label: 'Appointments' },
       { id: 'simulations', label: 'Simulations' },
       { id: 'add-member', label: 'Add Member' },
       { id: 'traceability', label: 'Traceability' },

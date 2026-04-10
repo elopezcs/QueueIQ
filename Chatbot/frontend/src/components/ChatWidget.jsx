@@ -12,6 +12,13 @@ export default function ChatWidget({ messages, onSend, disabled, done, progress,
   const [ttsMuted, setTtsMuted] = useState(false);
   const listRef = useRef(null);
   const inputRef = useRef(null);
+  const inputPlaceholder = loginRequired
+    ? "Log in to chat"
+    : loading
+      ? "Assistant is thinking..."
+      : disabled
+        ? "Start intake to chat"
+        : "Type your message...";
   const mediaRecorderRef = useRef(null);
   const mediaStreamRef = useRef(null);
   const chunksRef = useRef([]);
@@ -354,7 +361,7 @@ export default function ChatWidget({ messages, onSend, disabled, done, progress,
               ref={inputRef}
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder={loginRequired ? "Log in to chat" : "Type your message..."}
+              placeholder={inputPlaceholder}
               disabled={disabled || loginRequired}
               maxLength={2000}
               style={{ flex: 1 }}
@@ -398,3 +405,5 @@ export default function ChatWidget({ messages, onSend, disabled, done, progress,
     </div>
   );
 }
+
+

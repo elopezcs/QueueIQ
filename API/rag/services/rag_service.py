@@ -648,6 +648,7 @@ class RagService:
         *,
         requester_patient_id: str,
         requester_role: str,
+        requester_clinic_id: str | None = None,
         patient_id: str | None = None,
         limit: int = 50,
         offset: int = 0,
@@ -672,6 +673,7 @@ class RagService:
             LEFT JOIN rag.llm_runs r ON r.session_id = s.session_id
             LEFT JOIN rag.chat_outputs o ON o.session_id = s.session_id
             WHERE (%s IS NULL OR s.patient_id = %s)
+              AND (%s != 'staff' OR (%s IS NOT NULL AND CASE s.clinic_id WHEN 'Downtown-Clinic' THEN 'kitchener-downtown' WHEN 'Westside-Clinic' THEN 'waterloo-uptown' ELSE s.clinic_id END = %s))
             GROUP BY s.session_id,
                      s.patient_id,
                      s.clinic_id,
@@ -685,7 +687,15 @@ class RagService:
             ORDER BY s.started_at DESC
             LIMIT %s OFFSET %s
             """,
-            (effective_patient_id, effective_patient_id, int(limit), int(offset)),
+            (
+                effective_patient_id,
+                effective_patient_id,
+                requester_role,
+                requester_clinic_id,
+                requester_clinic_id,
+                int(limit),
+                int(offset),
+            ),
         )
         return rows
 
@@ -694,6 +704,7 @@ class RagService:
         *,
         requester_patient_id: str,
         requester_role: str,
+        requester_clinic_id: str | None = None,
         session_id: str,
     ) -> list[dict[str, Any]]:
         rows = fetch_all(
@@ -716,9 +727,17 @@ class RagService:
             LEFT JOIN rag.patient_chat_messages am ON am.id = t.assistant_message_id
             WHERE t.session_id = %s
               AND (%s IN ('manager', 'staff') OR s.patient_id = %s)
+              AND (%s != 'staff' OR (%s IS NOT NULL AND CASE s.clinic_id WHEN 'Downtown-Clinic' THEN 'kitchener-downtown' WHEN 'Westside-Clinic' THEN 'waterloo-uptown' ELSE s.clinic_id END = %s))
             ORDER BY t.turn_index ASC
             """,
-            (session_id, requester_role, requester_patient_id),
+            (
+                session_id,
+                requester_role,
+                requester_patient_id,
+                requester_role,
+                requester_clinic_id,
+                requester_clinic_id,
+            ),
         )
         return rows
 
@@ -727,6 +746,7 @@ class RagService:
         *,
         requester_patient_id: str,
         requester_role: str,
+        requester_clinic_id: str | None = None,
         patient_id: str | None = None,
         session_id: str | None = None,
         model_key: str | None = None,
@@ -753,6 +773,7 @@ class RagService:
             WHERE (%s IS NULL OR s.patient_id = %s)
               AND (%s IS NULL OR r.session_id = %s)
               AND (%s IS NULL OR r.model_key = %s)
+              AND (%s != 'staff' OR (%s IS NOT NULL AND CASE s.clinic_id WHEN 'Downtown-Clinic' THEN 'kitchener-downtown' WHEN 'Westside-Clinic' THEN 'waterloo-uptown' ELSE s.clinic_id END = %s))
             ORDER BY r.created_at DESC
             LIMIT %s OFFSET %s
             """,
@@ -763,6 +784,9 @@ class RagService:
                 session_id,
                 model_key,
                 model_key,
+                requester_role,
+                requester_clinic_id,
+                requester_clinic_id,
                 int(limit),
                 int(offset),
             ),
@@ -774,17 +798,26 @@ class RagService:
         *,
         requester_patient_id: str,
         requester_role: str,
+        requester_clinic_id: str | None = None,
         session_id: str,
     ) -> dict[str, Any] | None:
         session_rows = fetch_all(
             """
-            SELECT session_id, patient_id, clinic_id, started_at, ended_at
-            FROM rag.patient_chat_sessions
-            WHERE session_id=%s
-              AND (%s IN ('manager', 'staff') OR patient_id = %s)
+            SELECT s.session_id, s.patient_id, s.clinic_id, s.started_at, s.ended_at
+            FROM rag.patient_chat_sessions s
+            WHERE s.session_id=%s
+              AND (%s IN ('manager', 'staff') OR s.patient_id = %s)
+              AND (%s != 'staff' OR (%s IS NOT NULL AND CASE s.clinic_id WHEN 'Downtown-Clinic' THEN 'kitchener-downtown' WHEN 'Westside-Clinic' THEN 'waterloo-uptown' ELSE s.clinic_id END = %s))
             LIMIT 1
             """,
-            (session_id, requester_role, requester_patient_id),
+            (
+                session_id,
+                requester_role,
+                requester_patient_id,
+                requester_role,
+                requester_clinic_id,
+                requester_clinic_id,
+            ),
         )
         if not session_rows:
             return None
@@ -811,11 +844,13 @@ class RagService:
             "turns": self.list_audit_turns(
                 requester_patient_id=requester_patient_id,
                 requester_role=requester_role,
+                requester_clinic_id=requester_clinic_id,
                 session_id=session_id,
             ),
             "llm_runs": self.list_audit_runs(
                 requester_patient_id=requester_patient_id,
                 requester_role=requester_role,
+                requester_clinic_id=requester_clinic_id,
                 session_id=session_id,
                 limit=200,
                 offset=0,
@@ -1055,4 +1090,3 @@ def get_rag_service() -> RagService:
     if _SERVICE is None:
         _SERVICE = RagService()
     return _SERVICE
-

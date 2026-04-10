@@ -32,6 +32,20 @@ from Chatbot.backend.app.core.settings import settings
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 
+_LEGACY_CLINIC_ID_MAP = {
+    'Downtown-Clinic': 'kitchener-downtown',
+    'Westside-Clinic': 'waterloo-uptown',
+}
+
+
+def _normalize_clinic_id(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    return _LEGACY_CLINIC_ID_MAP.get(cleaned, cleaned)
+
 
 def _error(status_code: int, detail: str, error_code: str, field: str | None = None) -> JSONResponse:
     payload: dict[str, Any] = {"detail": detail, "error_code": error_code}
@@ -277,7 +291,16 @@ def rag_trace_detail(trace_id: str, request: Request):
     data = get_rag_service().trace_detail(trace_id)
     if not data:
         return _error(404, "Trace not found", "NOT_FOUND")
-    if data.get("patient_id") != patient["patient_id"] and str(patient.get("role") or "").lower() != "manager":
+    role = str(patient.get("role") or "").lower()
+    if role == 'manager':
+        return data
+    if role == 'staff':
+        requester_clinic_id = str(_normalize_clinic_id(patient.get('clinic_id')) or '').strip()
+        trace_clinic_id = str(_normalize_clinic_id(data.get('clinic_id')) or '').strip()
+        if not requester_clinic_id or trace_clinic_id != requester_clinic_id:
+            return _error(403, "Trace access denied", "FORBIDDEN")
+        return data
+    if data.get("patient_id") != patient["patient_id"]:
         return _error(403, "Trace access denied", "FORBIDDEN")
     return data
 
@@ -298,6 +321,7 @@ def rag_audit_sessions(
         for row in get_rag_service().list_audit_sessions(
             requester_patient_id=patient["patient_id"],
             requester_role=role,
+            requester_clinic_id=_normalize_clinic_id(patient.get('clinic_id')),
             patient_id=patient_id,
             limit=max(1, min(limit, 200)),
             offset=max(0, offset),
@@ -314,6 +338,7 @@ def rag_audit_turns(session_id: str, request: Request):
     rows = get_rag_service().list_audit_turns(
         requester_patient_id=patient["patient_id"],
         requester_role=role,
+        requester_clinic_id=_normalize_clinic_id(patient.get('clinic_id')),
         session_id=session_id,
     )
     return [RagAuditTurnItem(**row) for row in rows]
@@ -335,6 +360,7 @@ def rag_audit_runs(
     rows = get_rag_service().list_audit_runs(
         requester_patient_id=patient["patient_id"],
         requester_role=role,
+        requester_clinic_id=_normalize_clinic_id(patient.get('clinic_id')),
         patient_id=patient_id,
         session_id=session_id,
         model_key=model_key,
@@ -353,6 +379,7 @@ def rag_audit_timeline(session_id: str, request: Request):
     data = get_rag_service().session_audit_timeline(
         requester_patient_id=patient["patient_id"],
         requester_role=role,
+        requester_clinic_id=_normalize_clinic_id(patient.get('clinic_id')),
         session_id=session_id,
     )
     if not data:
@@ -363,4 +390,3 @@ def rag_audit_timeline(session_id: str, request: Request):
         llm_runs=[RagAuditRunItem(**row) for row in data.get("llm_runs", [])],
         session_output=RagAuditSessionOutputItem(**data["session_output"]) if data.get("session_output") else None,
     )
-
