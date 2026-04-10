@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.chatbot-backend
-    image: elopezcastaneda5061/queueiq-chatbot-backend:latest
+    image: mosio7818/queueiq-chatbot-backend:latest
     env_file:
       - .env
     ports:
@@ -14,22 +14,86 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.chatbot-frontend
-    image: elopezcastaneda5061/queueiq-chatbot-frontend:latest
+    image: mosio7818/queueiq-chatbot-frontend:latest
     ports:
       - "5173:80"
     depends_on:
       - chatbot-backend
     restart: unless-stopped
 
-  queuecontrol-simulator:
+  queuecontrol-manager-dashboard:
     build:
       context: .
       dockerfile: Dockerfile.queuecontrol-dashboard
-    image: elopezcastaneda5061/queueiq-queuecontrol-dashboard:latest
+    image: mosio7818/queueiq-queuecontrol-dashboard:latest
     env_file:
       - .env
+    environment:
+      - QUEUECONTROL_API_BASE_URL=http://chatbot-backend:8000
     ports:
       - "8501:8501"
+    command:
+      - python
+      - -m
+      - streamlit
+      - run
+      - QueueControl/dashboards/manager_view_dashboard.py
+      - --server.address
+      - 0.0.0.0
+      - --server.port
+      - "8501"
+    depends_on:
+      - chatbot-backend
+    restart: unless-stopped
+
+  queuecontrol-reception-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.queuecontrol-dashboard
+    image: mosio7818/queueiq-queuecontrol-dashboard:latest
+    env_file:
+      - .env
+    environment:
+      - QUEUECONTROL_API_BASE_URL=http://chatbot-backend:8000
+    ports:
+      - "8502:8502"
+    command:
+      - python
+      - -m
+      - streamlit
+      - run
+      - QueueControl/dashboards/reception_view_dashboard.py
+      - --server.address
+      - 0.0.0.0
+      - --server.port
+      - "8502"
+    depends_on:
+      - chatbot-backend
+    restart: unless-stopped
+
+  queuecontrol-patient-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.queuecontrol-dashboard
+    image: mosio7818/queueiq-queuecontrol-dashboard:latest
+    env_file:
+      - .env
+    environment:
+      - QUEUECONTROL_API_BASE_URL=http://chatbot-backend:8000
+    ports:
+      - "8503:8503"
+    command:
+      - python
+      - -m
+      - streamlit
+      - run
+      - QueueControl/dashboards/patient_view_dashboard.py
+      - --server.address
+      - 0.0.0.0
+      - --server.port
+      - "8503"
+    depends_on:
+      - chatbot-backend
     restart: unless-stopped
 
   web:
