@@ -142,6 +142,7 @@ class AuthSessionOut(BaseModel):
 
 class AppointmentOut(BaseModel):
     appointment_id: str
+    booking_token: str | None = None
     patient_id: str
     clinic_id: str
     session_id: str | None = None
@@ -160,6 +161,7 @@ class AppointmentListOut(BaseModel):
 
 class AdminAppointmentOut(BaseModel):
     appointment_id: str
+    booking_token: str | None = None
     patient_id: str
     full_name: str | None = None
     email: str | None = None
@@ -214,3 +216,4 @@ class DemoUserOut(BaseModel):
     is_admin: bool
     role: UserRole
     clinic_id: str | None = None
+

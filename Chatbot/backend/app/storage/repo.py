@@ -3,7 +3,6 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from app.auth.demo_accounts import DEMO_USERS
 from app.config.loader import load_clinics_config
 from app.storage.db import get_conn
 
@@ -29,12 +28,24 @@ def _clinic_ids() -> list[str]:
     return [clinic['id'] for clinic in cfg.get('clinics', []) if clinic.get('id')]
 
 
-def _demo_user_index(patient_id: str) -> int | None:
-    for index, user in enumerate(DEMO_USERS):
-        if user['patient_id'] == patient_id:
-            return index
-    return None
-
+def _demo_patient_index(patient_id: str) -> int | None:
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            """
+            SELECT patient_id
+            FROM patients
+            WHERE role='patient' AND patient_id LIKE ?
+            ORDER BY patient_id ASC
+            """,
+        ('demo-%',),
+        ).fetchall()
+        for index, row in enumerate(rows):
+            if row['patient_id'] == patient_id:
+                return index
+        return None
+    finally:
+        conn.close()
 
 PATIENT_SELECT_COLUMNS = (
     'patient_id, full_name, email, email_verified, is_admin, role, clinic_id, '
@@ -98,6 +109,13 @@ def _format_recent_history_for_context(appointments: list[dict[str, Any]]) -> st
         clinic_id = str(appointment.get('clinic_id') or 'unknown').strip()
         lines.append(f'- {scheduled_for} | {clinic_id} | {status} | {description}')
     return '\n'.join(lines)
+
+
+def _default_booking_token(appointment_id: str) -> str:
+    cleaned_id = str(appointment_id or '').strip().upper()
+    if not cleaned_id:
+        cleaned_id = secrets.token_hex(10).upper()
+    return f'BKG-{cleaned_id}'
 
 
 class SessionRepo:
@@ -528,20 +546,44 @@ class PatientRepo:
         finally:
             conn.close()
 
-    def list_demo_users(self) -> list[dict[str, Any]]:
-        return [
-            {
-                'patient_id': user['patient_id'],
-                'full_name': user['full_name'],
-                'email': user['email'],
-                'is_admin': user['is_admin'],
-                'role': user['role'],
-                'clinic_id': user['clinic_id'],
-                'otp_code': user['otp_code'],
-            }
-            for user in DEMO_USERS
-        ]
+    def get_demo_user_by_email(self, email: str) -> dict[str, Any] | None:
+        conn = get_conn()
+        try:
+            row = conn.execute(
+                """
+                SELECT patient_id, full_name, email, is_admin, role, clinic_id
+                FROM patients
+                WHERE patient_id LIKE ? AND LOWER(email)=?
+                LIMIT 1
+                """,
+                ('demo-%', email.lower()),
+            ).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
 
+    def list_demo_users(self) -> list[dict[str, Any]]:
+        conn = get_conn()
+        try:
+            rows = conn.execute(
+                """
+                SELECT patient_id, full_name, email, is_admin, role, clinic_id
+                FROM patients
+                WHERE patient_id LIKE ?
+                ORDER BY
+                    CASE role
+                        WHEN 'manager' THEN 0
+                        WHEN 'staff' THEN 1
+                        ELSE 2
+                    END,
+                    LOWER(full_name),
+                    LOWER(email)
+                """,
+            ('demo-%',),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
 
 class AppointmentRepo:
     def create_appointment(
@@ -553,22 +595,27 @@ class AppointmentRepo:
         status: str = 'scheduled',
         appointment_id: str | None = None,
         description: str | None = None,
+        booking_token: str | None = None,
     ) -> dict[str, Any]:
         resolved_appointment_id = appointment_id or secrets.token_hex(12)
+        resolved_booking_token = _default_booking_token(resolved_appointment_id)
+        if isinstance(booking_token, str) and booking_token.strip():
+            resolved_booking_token = booking_token.strip().upper()
+
         conn = get_conn()
         now = utc_now_iso()
         try:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO appointments(
-                    appointment_id, patient_id, clinic_id, session_id, scheduled_for, status, description, created_at, updated_at
-                ) VALUES(?,?,?,?,?,?,?,?,?)
+                    appointment_id, booking_token, patient_id, clinic_id, session_id, scheduled_for, status, description, created_at, updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?)
                 """,
-                (resolved_appointment_id, patient_id, clinic_id, session_id, scheduled_for, status, description, now, now),
+                (resolved_appointment_id, resolved_booking_token, patient_id, clinic_id, session_id, scheduled_for, status, description, now, now),
             )
             conn.commit()
             row = conn.execute(
-                'SELECT appointment_id, patient_id, clinic_id, session_id, scheduled_for, status, description, created_at, updated_at FROM appointments WHERE appointment_id=?',
+                "SELECT appointment_id, booking_token, patient_id, clinic_id, session_id, scheduled_for, status, COALESCE(NULLIF(TRIM(description), ''), 'General consultation') AS description, created_at, updated_at FROM appointments WHERE appointment_id=?",
                 (resolved_appointment_id,),
             ).fetchone()
             return dict(row)
@@ -580,7 +627,7 @@ class AppointmentRepo:
         try:
             rows = conn.execute(
                 """
-                SELECT appointment_id, patient_id, clinic_id, session_id, scheduled_for, status, description, created_at, updated_at
+                SELECT appointment_id, booking_token, patient_id, clinic_id, session_id, scheduled_for, status, COALESCE(NULLIF(TRIM(description), ''), 'General consultation') AS description, created_at, updated_at
                 FROM appointments
                 WHERE patient_id=?
                 ORDER BY scheduled_for DESC
@@ -591,32 +638,52 @@ class AppointmentRepo:
         finally:
             conn.close()
 
-    def ensure_demo_appointments(self, patient_id: str) -> None:
-        demo_index = _demo_user_index(patient_id)
+    def ensure_demo_appointments(
+        self,
+        patient_id: str,
+        base_clinic_id: str | None = None,
+        replace_existing: bool = False,
+        include_upcoming: bool = False,
+    ) -> None:
+        demo_index = _demo_patient_index(patient_id)
         clinic_ids = _clinic_ids()
         if demo_index is None or not clinic_ids:
             return
 
         conn = get_conn()
         try:
-            conn.execute('DELETE FROM appointments WHERE patient_id=?', (patient_id,))
-            conn.commit()
+            existing_row = conn.execute(
+                'SELECT COUNT(*) AS total FROM appointments WHERE patient_id=?',
+                (patient_id,),
+            ).fetchone()
+            existing_total = int(existing_row['total']) if existing_row else 0
+            if existing_total and not replace_existing:
+                return
+            if replace_existing:
+                conn.execute('DELETE FROM appointments WHERE patient_id=?', (patient_id,))
+                conn.commit()
         finally:
             conn.close()
 
         now = utc_now()
-        base_clinic_index = demo_index % len(clinic_ids)
+        resolved_base_clinic_id = str(base_clinic_id or '').strip()
+        if resolved_base_clinic_id and resolved_base_clinic_id in clinic_ids:
+            base_clinic_index = clinic_ids.index(resolved_base_clinic_id)
+        else:
+            base_clinic_index = demo_index % len(clinic_ids)
 
-        for offset in range(2):
-            clinic_id = clinic_ids[(base_clinic_index + offset) % len(clinic_ids)]
-            scheduled_for = (now + timedelta(days=offset + 1, hours=9 + demo_index, minutes=offset * 20)).isoformat()
-            self.create_appointment(
-                patient_id=patient_id,
-                clinic_id=clinic_id,
-                scheduled_for=scheduled_for,
-                status='scheduled',
-                appointment_id=f'demo-upcoming-{patient_id}-{offset + 1}',
-            )
+        if include_upcoming:
+            for offset in range(2):
+                clinic_id = clinic_ids[(base_clinic_index + offset) % len(clinic_ids)]
+                scheduled_for = (now + timedelta(days=offset + 1, hours=9 + demo_index, minutes=offset * 20)).isoformat()
+                self.create_appointment(
+                    patient_id=patient_id,
+                    clinic_id=clinic_id,
+                    scheduled_for=scheduled_for,
+                    status='scheduled',
+                    appointment_id=f'demo-upcoming-{patient_id}-{offset + 1}',
+                    description=f'Demo upcoming visit at {clinic_id.replace("-", " ").title()}',
+                )
 
         for offset in range(6):
             clinic_id = clinic_ids[(base_clinic_index + offset) % len(clinic_ids)]
@@ -627,8 +694,52 @@ class AppointmentRepo:
                 scheduled_for=scheduled_for,
                 status='completed',
                 appointment_id=f'demo-history-{patient_id}-{offset + 1}',
+                description=f'Demo completed visit at {clinic_id.replace("-", " ").title()}',
             )
 
+    def remove_auto_demo_upcoming_appointments(self, patient_id: str) -> int:
+        conn = get_conn()
+        try:
+            cursor = conn.execute(
+                """
+                DELETE FROM appointments
+                WHERE patient_id=?
+                  AND (
+                    appointment_id LIKE ?
+                    OR (status='scheduled' AND COALESCE(description, '') LIKE ?)
+                  )
+                """,
+                (patient_id, 'demo-upcoming-%', 'Demo upcoming visit%'),
+            )
+            conn.commit()
+            return int(getattr(cursor, 'rowcount', 0) or 0)
+        finally:
+            conn.close()
+
+    def ensure_initial_patient_appointment(self, patient_id: str) -> dict[str, Any] | None:
+        conn = get_conn()
+        try:
+            existing = conn.execute(
+                'SELECT appointment_id FROM appointments WHERE patient_id=? ORDER BY created_at DESC LIMIT 1',
+                (patient_id,),
+            ).fetchone()
+            if existing:
+                return None
+        finally:
+            conn.close()
+
+        clinic_ids = _clinic_ids()
+        if not clinic_ids:
+            return None
+
+        scheduled_for = (utc_now() + timedelta(days=1, hours=2)).isoformat()
+        return self.create_appointment(
+            patient_id=patient_id,
+            clinic_id=clinic_ids[0],
+            scheduled_for=scheduled_for,
+            status='scheduled',
+            description='Auto-booked initial consultation',
+        )
     def search_appointments(self, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         conn = get_conn()
         try:
@@ -643,9 +754,11 @@ class AppointmentRepo:
 
             patient_query = filters.get('patient_query')
             if patient_query:
-                clauses.append('(LOWER(COALESCE(p.full_name, "")) LIKE ? OR LOWER(COALESCE(p.email, "")) LIKE ?)')
+                clauses.append(
+                    '(LOWER(COALESCE(p.full_name, "")) LIKE ? OR LOWER(COALESCE(p.email, "")) LIKE ? OR LOWER(COALESCE(a.booking_token, "")) LIKE ? OR LOWER(COALESCE(a.appointment_id, "")) LIKE ?)'
+                )
                 search_value = f"%{str(patient_query).lower()}%"
-                params.extend([search_value, search_value])
+                params.extend([search_value, search_value, search_value, search_value])
 
             scheduled_from = filters.get('scheduled_from')
             if scheduled_from:
@@ -675,8 +788,8 @@ class AppointmentRepo:
             where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ''
             rows = conn.execute(
                 f'''
-                SELECT a.appointment_id, a.patient_id, p.full_name, p.email, a.clinic_id, a.session_id,
-                       a.scheduled_for, a.status, a.description, a.created_at, a.updated_at
+                SELECT a.appointment_id, a.booking_token, a.patient_id, p.full_name, p.email, a.clinic_id, a.session_id,
+                       a.scheduled_for, a.status, COALESCE(NULLIF(TRIM(a.description), ''), 'General consultation') AS description, a.created_at, a.updated_at
                 FROM appointments a
                 JOIN patients p ON p.patient_id = a.patient_id
                 {where_sql}
@@ -791,60 +904,141 @@ class AdminRepo:
             conn.close()
 
 
-def seed_demo_data() -> None:
+def _seed_demo_users_for_clinics(clinic_ids: list[str], base_users: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seed_users = [dict(user) for user in base_users]
+    staff_clinics = {
+        str(user.get('clinic_id') or '').strip()
+        for user in seed_users
+        if str(user.get('role') or '').lower() == 'staff' and str(user.get('clinic_id') or '').strip()
+    }
+    patient_clinics = {
+        str(user.get('clinic_id') or '').strip()
+        for user in seed_users
+        if str(user.get('role') or '').lower() == 'patient' and str(user.get('clinic_id') or '').strip()
+    }
+
+    for clinic_id in clinic_ids:
+        if clinic_id not in staff_clinics:
+            slug = clinic_id.replace('-', '.')
+            seed_users.append(
+                {
+                    'patient_id': f'demo-staff-{clinic_id}',
+                    'full_name': f"Demo Staff {clinic_id.replace('-', ' ').title()}",
+                    'email': f'staff.{slug}@queueiq.local',
+                    'role': 'staff',
+                    'clinic_id': clinic_id,
+                    'is_admin': False,
+                    'otp_code': '333333',
+                }
+            )
+            staff_clinics.add(clinic_id)
+
+        if clinic_id not in patient_clinics:
+            slug = clinic_id.replace('-', '.')
+            seed_users.append(
+                {
+                    'patient_id': f'demo-patient-{clinic_id}',
+                    'full_name': f"Demo Patient {clinic_id.replace('-', ' ').title()}",
+                    'email': f'patient.{slug}@queueiq.local',
+                    'role': 'patient',
+                    'clinic_id': clinic_id,
+                    'is_admin': False,
+                    'otp_code': '111111',
+                }
+            )
+            patient_clinics.add(clinic_id)
+
+    return seed_users
+
+
+def seed_demo_data() -> dict[str, int]:
+    from app.auth.demo_accounts import DEMO_USERS
+
     patient_repo = PatientRepo()
     appointment_repo = AppointmentRepo()
     clinic_ids = _clinic_ids()
     if not clinic_ids:
-        return
+        return {
+            'inserted_users': 0,
+            'skipped_duplicates': 0,
+            'patient_rows_seeded': 0,
+        }
+
+    seed_users = _seed_demo_users_for_clinics(clinic_ids, DEMO_USERS)
+    summary = {
+        'inserted_users': 0,
+        'skipped_duplicates': 0,
+        'patient_rows_seeded': 0,
+    }
 
     patient_demo_index = 0
-    for user in DEMO_USERS:
-        patient_repo.create_or_update_patient(
-            user['email'],
-            user['full_name'],
-            patient_id=user['patient_id'],
-            is_admin=bool(user['is_admin']),
-            email_verified=True,
-            role=user['role'],
-            clinic_id=user['clinic_id'],
-        )
+    for user in seed_users:
+        user_clinic_id = user.get('clinic_id') if user.get('clinic_id') in clinic_ids else None
+        existing = patient_repo.get_patient_by_email(user['email'])
+        if existing:
+            summary['skipped_duplicates'] += 1
+            patient = existing
+        else:
+            patient = patient_repo.create_or_update_patient(
+                user['email'],
+                user['full_name'],
+                patient_id=user['patient_id'],
+                is_admin=bool(user['is_admin']),
+                email_verified=True,
+                role=user['role'],
+                clinic_id=user_clinic_id,
+            )
+            summary['inserted_users'] += 1
 
         if user['role'] != 'patient':
             continue
 
-        appointment_repo.ensure_demo_appointments(user['patient_id'])
+        patient_demo_index += 1
+        summary['patient_rows_seeded'] += 1
+        appointment_repo.ensure_demo_appointments(
+            patient['patient_id'],
+            base_clinic_id=user_clinic_id,
+            replace_existing=False,
+            include_upcoming=False,
+        )
 
         conn = get_conn()
         try:
-            patient_demo_index += 1
-            session_id = f'demo-session-{patient_demo_index}'
-            clinic_id = clinic_ids[(patient_demo_index - 1) % len(clinic_ids)]
+            session_id = f"demo-session-{patient['patient_id']}"
+            clinic_id = user_clinic_id or clinic_ids[(patient_demo_index - 1) % len(clinic_ids)]
+            urgency = ['low', 'medium', 'high'][(patient_demo_index - 1) % 3]
+            category = ['general', 'respiratory', 'urgent'][(patient_demo_index - 1) % 3]
+
             conn.execute(
-                'INSERT OR REPLACE INTO sessions(session_id, clinic_id, patient_id, created_at, done) VALUES(?,?,?,?,1)',
-                (session_id, clinic_id, user['patient_id'], utc_now_iso()),
+                """
+                INSERT INTO sessions(session_id, clinic_id, patient_id, created_at, done)
+                VALUES(?,?,?,?,1)
+                ON CONFLICT (session_id) DO NOTHING
+                """,
+                (session_id, clinic_id, patient['patient_id'], utc_now_iso()),
             )
             conn.execute(
                 """
-                INSERT OR REPLACE INTO outputs(
+                INSERT INTO outputs(
                     session_id, run_id, urgency_band, visit_category,
                     wait_p50_minutes, wait_p90_minutes, explanation,
                     disclaimers_json, config_snapshot_hash, created_at
                 ) VALUES(?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT (session_id) DO NOTHING
                 """,
                 (
                     session_id,
-                    f'demo-run-{patient_demo_index}',
-                    ['low', 'medium', 'high'][(patient_demo_index - 1) % 3],
-                    ['general', 'respiratory', 'urgent'][(patient_demo_index - 1) % 3],
+                    f"demo-run-{patient['patient_id']}",
+                    urgency,
+                    category,
                     18 + ((patient_demo_index - 1) * 7),
                     32 + ((patient_demo_index - 1) * 11),
-                    f'Demo intake summary for {user["full_name"]} at {clinic_id}.',
+                    f"Demo intake summary for {patient['full_name']} at {clinic_id}.",
                     json.dumps([
                         'This is not a diagnosis.',
                         'Wait-time estimates are not guaranteed.',
                     ]),
-                    f'demo-config-hash-{patient_demo_index}',
+                    f"demo-config-hash-{patient['patient_id']}",
                     utc_now_iso(),
                 ),
             )
@@ -852,12 +1046,7 @@ def seed_demo_data() -> None:
         finally:
             conn.close()
 
-
-
-
-
-
-
+    return summary
 
 
 

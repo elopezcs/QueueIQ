@@ -147,6 +147,7 @@ export async function getStaffAppointments(filters = {}) {
     patient_query: filters.patientQuery || '',
     scheduled_from: filters.scheduledFrom || '',
     scheduled_to: filters.scheduledTo || '',
+    clinic_id: filters.clinicId || '',
   };
 
   Object.entries(entries).forEach(([key, value]) => {
@@ -262,5 +263,4 @@ export async function getRagTrace(traceId) {
     headers: { ...authHeaders() },
   });
 }
-
 

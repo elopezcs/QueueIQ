@@ -13,8 +13,6 @@ class Settings(BaseSettings):
         default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173"]
     )
 
-    # Storage
-    sqlite_path: str = Field(default="app.db", alias="SQLITE_PATH")
 
     # Config
     clinics_config_path: str = Field(default="app/config/clinics.yaml", alias="CLINICS_CONFIG_PATH")

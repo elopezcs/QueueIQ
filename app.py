@@ -315,7 +315,11 @@ def run_workspace_launcher() -> int:
         print()
         print("QueueIQ is running.")
         print("- Chatbot frontend: http://127.0.0.1:5173")
-        print("- QueueIQ API:  http://127.0.0.1:8000/docs")`r`n        print(f"- Patient dashboard:   http://{LOCAL_HOST}:{PATIENT_DASHBOARD_PORT}")`r`n        print(f"- Reception dashboard: http://{LOCAL_HOST}:{RECEPTION_DASHBOARD_PORT}")`r`n        print(f"- Manager dashboard:   http://{LOCAL_HOST}:{MANAGER_DASHBOARD_PORT}")`r`n        print()
+        print("- QueueIQ API:  http://127.0.0.1:8000/docs")
+        print(f"- Patient dashboard:   http://{LOCAL_HOST}:{PATIENT_DASHBOARD_PORT}")
+        print(f"- Reception dashboard: http://{LOCAL_HOST}:{RECEPTION_DASHBOARD_PORT}")
+        print(f"- Manager dashboard:   http://{LOCAL_HOST}:{MANAGER_DASHBOARD_PORT}")
+        print()
         print("Press Ctrl+C in this terminal to stop every process started by the launcher.")
 
         while True:
