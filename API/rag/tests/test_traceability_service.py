@@ -98,3 +98,18 @@ def test_turn_persists_error_run_when_llm_fails(monkeypatch):
     params = llm_writes[-1][1]
     assert params is not None
     assert "llm_error" in params
+
+
+def test_start_session_skips_patient_context_prefetch(monkeypatch):
+    service, _executed = _service_with_mocks(monkeypatch)
+    service._patient_context_text = lambda **kwargs: (_ for _ in ()).throw(AssertionError("startup prefetch should not run"))
+
+    result = service.start_session(
+        patient_id="pat_1",
+        clinic_id="clinic_1",
+        patient_profile={"full_name": "Pat One"},
+    )
+
+    assert result["session_id"].startswith("rag_sess_")
+    assert "Clinic One" in result["assistant_message"]
+    assert "What brings you in today" in result["assistant_message"]

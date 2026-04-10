@@ -345,7 +345,17 @@ class RagService:
         items = self.orchestrator.patient_retriever.retrieve(patient_id=patient_id, query=query, limit=6)
         if not items:
             return None
-        lines = []
+        source_types = {
+            str(item.get("source_type") or "").strip().lower()
+            for item in items
+            if str(item.get("source_type") or "").strip()
+        }
+        lines = [
+            f"known_allergies_present={'true' if 'allergy' in source_types else 'false'}",
+            f"known_medications_present={'true' if 'medication' in source_types else 'false'}",
+            f"known_chronic_conditions_present={'true' if ('encounter' in source_types or 'clinical_note' in source_types) else 'false'}",
+            "known_context_snippets:",
+        ]
         for item in items:
             source = str(item.get("source_type") or "context")
             snippet = str(item.get("snippet") or "").strip()
@@ -407,13 +417,8 @@ class RagService:
         self._upsert_public_patient(patient_id=patient_id, patient_profile=patient_profile)
         self._insert_public_session(session_id=session_id, clinic_id=clinic_id, patient_id=patient_id)
         logger.info("RAG session started: session_id=%s patient_id=%s clinic_id=%s", session_id, patient_id, clinic_id)
-        patient_context = self._patient_context_text(
-            patient_id=patient_id,
-            query="medical profile history medications allergies",
-        )
         first, disclaimers = self.intake_orchestrator.first_message(
             clinic=clinic,
-            patient_context=patient_context,
         )
         self._insert_rag_message(session_id=session_id, role="assistant", content=first)
         self._insert_public_message(session_id=session_id, role="assistant", content=first)
@@ -471,6 +476,11 @@ class RagService:
                 clinic=clinic,
                 transcript=transcript,
                 patient_context=patient_context,
+                session_id=session_id,
+                clinic_id=str(session["clinic_id"]),
+                patient_id=patient_id,
+                endpoint="/rag/chat/turn",
+                retrieval_mode=route,
             )
         except Exception as exc:
             status = "llm_error"
@@ -549,6 +559,12 @@ class RagService:
             clinic=clinic,
             transcript=transcript,
             patient_context=patient_context,
+            session_id=session_id,
+            clinic_id=str(session["clinic_id"]),
+            patient_id=patient_id,
+            endpoint="/rag/chat/end",
+            retrieval_mode="finalize",
+            user_query=(user_messages[-1] if user_messages else "session_finalize"),
         )
         outputs["session_id"] = session_id
 

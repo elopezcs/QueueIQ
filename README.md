@@ -323,6 +323,7 @@ For `POST /rag/chat/turn`, the current execution path is:
 Notes:
 - The active turn path uses intake orchestrator prompts.
 - Clinic knowledge retrieval tables are still used by retrieval/debug flows (for example `/rag/retrieve/debug`) and seed generation.
+- Demo-only prompt trace logging can be enabled with `ENABLE_PROMPT_LOGGING=true`. When enabled, full constructed prompts are appended per session under `Chatbot/backend/logs/prompts/`.
 
 ### Environment Variables
 
@@ -341,6 +342,13 @@ RAG_ACTIVE_MODEL=gemma3_4b
 RAG_OLLAMA_BASE_URL=http://127.0.0.1:11434
 RAG_ENABLE_EMBEDDINGS=true
 RAG_EMBEDDING_MODEL=nomic-embed-text
+ENABLE_PROMPT_LOGGING=false
+
+# Voice input prototype (default off)
+VOICE_INPUT_ENABLED=false
+VOICE_OUTPUT_ENABLED=false
+VOICE_TRANSCRIPTION_PROVIDER=openai
+VOICE_MAX_DURATION_SECONDS=30
 
 # Alternative provider mode:
 # RAG_MODEL_PROVIDER=openai_compatible
@@ -348,9 +356,31 @@ RAG_EMBEDDING_MODEL=nomic-embed-text
 # RAG_OPENAI_API_KEY=local-dev-key
 ```
 
+`ENABLE_PROMPT_LOGGING` is intended for local demos/debugging visibility only and can include sensitive prompt content. Keep it disabled in production.
+
 Supported active models:
 - `gemma3_4b`
 - `qwen2_5_7b_instruct`
+
+### Voice Input Prototype (Phase 1)
+
+Voice input is additive and defaults to OFF. Existing typed chat behavior is unchanged unless enabled.
+
+Enable voice input / output in repo-root `.env`:
+
+```env
+VOICE_INPUT_ENABLED=true
+VOICE_OUTPUT_ENABLED=true
+VOICE_TRANSCRIPTION_PROVIDER=openai
+VOICE_MAX_DURATION_SECONDS=30
+OPENAI_API_KEY=your_api_key_here
+```
+
+How it works:
+- Frontend reads `GET /rag/voice/config` to decide whether to show mic controls.
+- User records a short clip and the frontend sends multipart audio to `POST /rag/chat/transcribe`.
+- Transcript is inserted into the existing chat input for review/edit before manual send.
+- If `VOICE_OUTPUT_ENABLED=true`, newly completed assistant messages can be read aloud via browser speech synthesis.
 
 ### DB Setup and Migration
 
@@ -411,6 +441,15 @@ Run tests (including new RAG tests):
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
 ```
+
+Manual voice-input checklist:
+- `VOICE_INPUT_ENABLED` missing/false: no mic controls shown; normal typed chat works unchanged.
+- `VOICE_INPUT_ENABLED=true`: mic button appears in chat modal input row.
+- Start recording, then stop: status transitions to transcribing and transcript is inserted into text box.
+- User can edit transcript and click `Send` to use normal `/rag/chat/turn` flow.
+- Invalid upload/provider issues show a controlled error and do not break the rest of the chat UI.
+- `VOICE_OUTPUT_ENABLED` missing/false: no TTS controls appear; text chat behavior is unchanged.
+- `VOICE_OUTPUT_ENABLED=true`: new assistant reply is spoken once, replay works, and stop cancels playback safely.
 
 ### Bulk Patient Ingestion ETL
 

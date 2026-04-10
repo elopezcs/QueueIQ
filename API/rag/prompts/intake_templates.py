@@ -45,6 +45,9 @@ def next_turn_prompts(
         "- If enough info has been collected, output STOP.\n"
         "- If you detect emergency-like content, output SAFETY.\n"
         "- Use known patient history only to personalize operational intake.\n\n"
+        "- Do NOT re-ask known chart facts that already exist in Known patient context (allergies, medications, chronic conditions).\n"
+        "- If that chart fact is relevant, ask only for changes since last update (for example: 'Any new allergies or reactions since your last update?').\n"
+        "- If chart facts are already known and unchanged, ask the next missing intake detail instead.\n\n"
         "Return JSON only with this schema:\n"
         "{\n"
         '  "decision": "ASK" | "STOP" | "SAFETY",\n'
