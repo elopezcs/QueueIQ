@@ -1486,3 +1486,18 @@ runtime-logs/
 
 # Local env files with personal secrets
 env-mustafa
+Chatbot/backend/logs/prompts/prompt_session_rag_sess_4bad294873df53f697d39bf3.csv
+Chatbot/backend/logs/prompts/prompt_session_rag_sess_c1ed6dfd7abdd016676d7e3b.csv
+Chatbot/backend/logs/prompts/prompt_session_rag_sess_c89dabab47a3827c383ad3ff.csv
+Chatbot/backend/logs/prompts/prompt_session_unknown_session.csv
+.gitignore
+Chatbot/backend/app/core/settings.py
+Chatbot/backend/logs/prompts/prompt_session_rag_sess_8e273d6c3832f1780a48c49e.csv
+Chatbot/backend/logs/prompts/prompt_session_rag_sess_56d12d3da399faddb9f7e554.csv
+Chatbot/backend/logs/prompts/prompt_session_rag_sess_87de5ebbd8a177d00ac8d163.csv
+Chatbot/backend/logs/prompts/prompt_session_rag_sess_6049e1de2ec95fbf6107c8f9.csv
+Chatbot/backend/logs/prompts/prompt_session_rag_sess_94915b78b3bcbbbba2734890.csv
+Chatbot/backend/logs/prompts/prompt_session_rag_sess_6990160b5e3854ce62eb9e2b.csv
+Chatbot/backend/logs/prompts/prompt_session_rag_sess_e379c72dc1df600e8b2b9865.csv
+Chatbot/backend/scripts/parse_prompt_inference_timeline.py
+.gitignore

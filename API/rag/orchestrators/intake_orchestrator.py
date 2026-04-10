@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from API.rag.model_adapters.registry import active_adapter, active_model
-from API.rag.prompt_logging import log_constructed_prompt
+from API.rag.prompt_logging import log_constructed_prompt, log_llm_inference
 from API.rag.prompts.intake_templates import (
     DEFAULT_DISCLAIMERS,
     final_classification_prompts,
@@ -18,6 +18,19 @@ DEFAULT_SAFE_ESCALATION = (
     "If this may be severe or an emergency, seek urgent in-person care or call local emergency services. "
     "If you can, ask someone nearby for help."
 )
+
+DELTA_REWRITE_BY_INTENT = {
+    "allergy_history": "Any new allergies or reactions since your last update?",
+    "medication_history": "Any new or changed medications since your last update?",
+    "chronic_history": "Any new chronic conditions or diagnosis changes since your last update?",
+}
+
+SCRIPTED_INTAKE_QUESTIONS = [
+    "How long have these symptoms or concerns been going on?",
+    "Is there an injury involved, such as a fall or cut?",
+    "Any timing constraints today, like needing to leave by a certain hour?",
+    "Are your symptoms getting better, worse, or staying about the same?",
+]
 
 
 def format_clinic_context(clinic: dict[str, Any]) -> str:
@@ -49,6 +62,132 @@ def _normalize_message_text(content: str, *, max_length: int = 120) -> str:
     if len(normalized) <= max_length:
         return normalized
     return normalized[: max(0, max_length - 3)].rstrip() + "..."
+
+
+def _normalize_for_match(content: str) -> str:
+    lowered = re.sub(r"\s+", " ", (content or "").strip()).lower()
+    return re.sub(r"[^a-z0-9 ?]", "", lowered)
+
+
+def _classify_question_intent(question: str) -> str | None:
+    q = _normalize_for_match(question)
+    if not q:
+        return None
+    if "allerg" in q and any(
+        phrase in q
+        for phrase in (
+            "known allerg",
+            "any allerg",
+            "do you have allerg",
+            "what allerg",
+            "allergy history",
+        )
+    ):
+        return "allergy_history"
+    if any(term in q for term in ("medication", "medications", "meds", "current meds")) and any(
+        phrase in q
+        for phrase in (
+            "do you take",
+            "are you taking",
+            "what meds",
+            "what medications",
+            "current medication",
+            "known medication",
+            "medication history",
+        )
+    ):
+        return "medication_history"
+    if any(term in q for term in ("chronic", "medical condition", "diagnosed")) and any(
+        phrase in q
+        for phrase in (
+            "known",
+            "history",
+            "do you have",
+            "any",
+            "list",
+        )
+    ):
+        return "chronic_history"
+    if "how long" in q or "since when" in q:
+        return "duration"
+    if "scale of 1 to 10" in q or "rate" in q:
+        return "severity"
+    return None
+
+
+def _known_history_intents(patient_context: str | None) -> set[str]:
+    if not patient_context:
+        return set()
+    normalized = patient_context.lower()
+    known: set[str] = set()
+    if "[allergy]" in normalized or "known_allergies_present=true" in normalized:
+        known.add("allergy_history")
+    if "[medication]" in normalized or "known_medications_present=true" in normalized:
+        known.add("medication_history")
+    if "known_chronic_conditions_present=true" in normalized or "chronic condition" in normalized:
+        known.add("chronic_history")
+    return known
+
+
+def _assistant_already_asked_question(transcript: list[dict[str, Any]], question: str) -> bool:
+    target = _normalize_for_match(question)
+    if not target:
+        return False
+    for message in transcript:
+        if str(message.get("role") or "").lower() != "assistant":
+            continue
+        asked = _normalize_for_match(str(message.get("content") or ""))
+        if asked and asked == target:
+            return True
+    return False
+
+
+def _intent_already_asked_and_answered(transcript: list[dict[str, Any]], intent: str) -> bool:
+    for idx, message in enumerate(transcript):
+        if str(message.get("role") or "").lower() != "assistant":
+            continue
+        asked_intent = _classify_question_intent(str(message.get("content") or ""))
+        if asked_intent != intent:
+            continue
+        for later in transcript[idx + 1 :]:
+            if str(later.get("role") or "").lower() == "user":
+                return True
+    return False
+
+
+def _first_non_duplicate_scripted_question(transcript: list[dict[str, Any]]) -> str:
+    for candidate in SCRIPTED_INTAKE_QUESTIONS:
+        if not _assistant_already_asked_question(transcript, candidate):
+            return candidate
+    return "Could you share one more detail that would help queue planning today?"
+
+
+def _apply_repetition_guard(
+    *,
+    next_question: str,
+    transcript: list[dict[str, Any]],
+    patient_context: str | None,
+) -> str:
+    question = (next_question or "").strip()
+    if not question:
+        return _first_non_duplicate_scripted_question(transcript)
+
+    intent = _classify_question_intent(question)
+    known_history = _known_history_intents(patient_context)
+
+    if intent and intent in known_history:
+        rewritten = DELTA_REWRITE_BY_INTENT.get(intent)
+        if rewritten and not _assistant_already_asked_question(transcript, rewritten):
+            return rewritten
+        return _first_non_duplicate_scripted_question(transcript)
+
+    if intent and _intent_already_asked_and_answered(transcript, intent):
+        return _first_non_duplicate_scripted_question(transcript)
+
+    if _assistant_already_asked_question(transcript, question):
+        return _first_non_duplicate_scripted_question(transcript)
+
+    return question
 
 
 def _extract_user_highlights(transcript: list[dict[str, Any]], *, max_items: int = 3) -> list[str]:
@@ -185,17 +324,11 @@ class RagIntakeOrchestrator:
         self.max_turns = settings.max_turns
 
     def first_message(self, clinic: dict[str, Any], patient_context: str | None = None) -> tuple[str, list[str]]:
-        personalized_note = (
-            "\n\nI can also use the profile and visit details already saved on your account to avoid repeating background questions."
-            if patient_context
-            else ""
-        )
+        _ = patient_context
         msg = (
             f"Welcome. I can help collect intake details for {clinic.get('name')}."
             "\n\nThis chat is for pre-intake support before your visit. "
-            "I will ask a few short questions for operational queue planning. "
-            "This is not a medical diagnosis."
-            f"{personalized_note}"
+            "I will ask a few short questions for operational queue planning."
             "\n\nWhat brings you in today, in one or two sentences?"
         )
         return msg, DEFAULT_DISCLAIMERS
@@ -237,18 +370,85 @@ class RagIntakeOrchestrator:
             endpoint=endpoint,
             retrieval_mode=retrieval_mode,
         )
-        data = adapter.generate_structured(
-            model_name=model.model_name,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-        )
+        try:
+            data = adapter.generate_structured(
+                model_name=model.model_name,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+            )
+        except Exception:
+            log_llm_inference(
+                session_id=session_id or "unknown_session",
+                user_query=user_query or "",
+                clinic_id=clinic_id,
+                patient_id=patient_id,
+                model_name=model.model_name,
+                provider=provider or None,
+                endpoint=endpoint,
+                retrieval_mode=retrieval_mode,
+                inference_source="adapter_error",
+            )
+            raise
+
         if isinstance(data, dict):
             if any(key in data for key in ("decision", "urgency_band", "visit_category", "next_question")):
+                log_llm_inference(
+                    session_id=session_id or "unknown_session",
+                    user_query=user_query or "",
+                    clinic_id=clinic_id,
+                    patient_id=patient_id,
+                    model_name=model.model_name,
+                    provider=provider or None,
+                    endpoint=endpoint,
+                    retrieval_mode=retrieval_mode,
+                    inference_json=data,
+                )
                 return data
             nested = _extract_first_json_object(str(data.get("assistant_message") or ""))
             if nested:
+                log_llm_inference(
+                    session_id=session_id or "unknown_session",
+                    user_query=user_query or "",
+                    clinic_id=clinic_id,
+                    patient_id=patient_id,
+                    model_name=model.model_name,
+                    provider=provider or None,
+                    endpoint=endpoint,
+                    retrieval_mode=retrieval_mode,
+                    inference_json=nested,
+                    inference_source="assistant_message_json",
+                )
                 return nested
         return {}
+
+    def _log_fallback_inference(
+        self,
+        *,
+        session_id: str | None,
+        user_query: str,
+        clinic_id: str | None,
+        patient_id: str | None,
+        endpoint: str | None,
+        retrieval_mode: str | None,
+        reason: str,
+    ) -> None:
+        provider = str(settings.rag_model_provider or "").strip().lower() or None
+        model_name: str | None = None
+        try:
+            model_name = active_model().model_name
+        except Exception:
+            model_name = None
+        log_llm_inference(
+            session_id=session_id or "unknown_session",
+            user_query=user_query,
+            clinic_id=clinic_id,
+            patient_id=patient_id,
+            model_name=model_name,
+            provider=provider,
+            endpoint=endpoint,
+            retrieval_mode=retrieval_mode,
+            inference_source=reason,
+        )
 
     def next_turn(
         self,
@@ -264,12 +464,35 @@ class RagIntakeOrchestrator:
     ) -> tuple[str, bool, dict[str, int]]:
         turn_count = sum(1 for message in transcript if str(message.get("role") or "").lower() == "user")
         transcript_text = transcript_to_text(transcript)
+        latest_user_query = ""
+        for message in reversed(transcript):
+            if str(message.get("role") or "").lower() == "user":
+                latest_user_query = str(message.get("content") or "")
+                break
 
         safety = _safety_check(transcript_text)
         if safety["is_high_risk"]:
+            self._log_fallback_inference(
+                session_id=session_id,
+                user_query=latest_user_query,
+                clinic_id=clinic_id or str(clinic.get("id") or ""),
+                patient_id=patient_id,
+                endpoint=endpoint or "/rag/chat/turn",
+                retrieval_mode=retrieval_mode,
+                reason="safety_short_circuit",
+            )
             return safety["safe_message"], True, {"turn_count": turn_count, "max_turns": self.max_turns}
 
         if turn_count >= self.max_turns:
+            self._log_fallback_inference(
+                session_id=session_id,
+                user_query=latest_user_query,
+                clinic_id=clinic_id or str(clinic.get("id") or ""),
+                patient_id=patient_id,
+                endpoint=endpoint or "/rag/chat/turn",
+                retrieval_mode=retrieval_mode,
+                reason="max_turns_reached",
+            )
             return (
                 "Thanks. I have enough information to generate operational results. Please tap 'Finish' to see them.",
                 True,
@@ -286,11 +509,6 @@ class RagIntakeOrchestrator:
         )
         data: dict[str, Any] = {}
         try:
-            latest_user_query = ""
-            for message in reversed(transcript):
-                if str(message.get("role") or "").lower() == "user":
-                    latest_user_query = str(message.get("content") or "")
-                    break
             data = self._generate_structured(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
@@ -305,11 +523,16 @@ class RagIntakeOrchestrator:
             data = {}
 
         if not data:
-            scripted = [
-                "How long have these symptoms or concerns been going on?",
-                "Is there an injury involved, such as a fall or cut?",
-                "Any timing constraints today, like needing to leave by a certain hour?",
-            ]
+            self._log_fallback_inference(
+                session_id=session_id,
+                user_query=latest_user_query,
+                clinic_id=clinic_id or str(clinic.get("id") or ""),
+                patient_id=patient_id,
+                endpoint=endpoint or "/rag/chat/turn",
+                retrieval_mode=retrieval_mode,
+                reason="fallback_scripted",
+            )
+            scripted = SCRIPTED_INTAKE_QUESTIONS
             idx = min(turn_count, len(scripted) - 1)
             next_q = scripted[idx]
             done = turn_count >= len(scripted)
@@ -334,9 +557,11 @@ class RagIntakeOrchestrator:
                 {"turn_count": turn_count, "max_turns": self.max_turns},
             )
 
-        next_question = str(data.get("next_question") or "").strip()
-        if not next_question:
-            next_question = "Could you share a bit more detail about what you need help with today?"
+        next_question = _apply_repetition_guard(
+            next_question=str(data.get("next_question") or "").strip(),
+            transcript=transcript,
+            patient_context=patient_context,
+        )
         return next_question, False, {"turn_count": turn_count, "max_turns": self.max_turns}
 
     def finalize(
@@ -354,9 +579,24 @@ class RagIntakeOrchestrator:
     ) -> dict[str, Any]:
         transcript_text = transcript_to_text(transcript)
         clinic_context = format_clinic_context(clinic)
+        latest_user_query = user_query or ""
+        if not latest_user_query:
+            for message in reversed(transcript):
+                if str(message.get("role") or "").lower() == "user":
+                    latest_user_query = str(message.get("content") or "")
+                    break
 
         safety = _safety_check(transcript_text)
         if safety["is_high_risk"]:
+            self._log_fallback_inference(
+                session_id=session_id,
+                user_query=latest_user_query,
+                clinic_id=clinic_id or str(clinic.get("id") or ""),
+                patient_id=patient_id,
+                endpoint=endpoint or "/rag/chat/end",
+                retrieval_mode=retrieval_mode,
+                reason="safety_short_circuit",
+            )
             urgency_band = "high"
             visit_category = "urgent"
             explanation = "High-risk indicators detected. Seek urgent in-person care."
@@ -379,6 +619,16 @@ class RagIntakeOrchestrator:
                 )
             except Exception:
                 data = {}
+            if not data:
+                self._log_fallback_inference(
+                    session_id=session_id,
+                    user_query=latest_user_query,
+                    clinic_id=clinic_id or str(clinic.get("id") or ""),
+                    patient_id=patient_id,
+                    endpoint=endpoint or "/rag/chat/end",
+                    retrieval_mode=retrieval_mode,
+                    reason="fallback_finalize_default",
+                )
             urgency_band = str(data.get("urgency_band", "medium")).lower()
             if urgency_band not in {"low", "medium", "high"}:
                 urgency_band = "medium"
