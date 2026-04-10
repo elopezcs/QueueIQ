@@ -1,19 +1,29 @@
 import sys
+from functools import lru_cache
 from pathlib import Path
 
-backend_root = Path(__file__).resolve().parents[1]
-repo_root = backend_root.parents[1]
 
-for path in (repo_root, backend_root):
-    path_str = str(path)
-    if path_str not in sys.path:
-        sys.path.insert(0, path_str)
+def _bootstrap_paths() -> None:
+    backend_root = Path(__file__).resolve().parents[1]
+    repo_root = backend_root.parents[1]
 
-from app.storage.db import get_conn, init_db
-from app.storage.repo import seed_demo_data
+    for path in (repo_root, backend_root):
+        path_str = str(path)
+        if path_str not in sys.path:
+            sys.path.insert(0, path_str)
+
+
+@lru_cache(maxsize=1)
+def _storage_exports():
+    _bootstrap_paths()
+    from app.storage.db import get_conn, init_db
+    from app.storage.repo import seed_demo_data
+
+    return get_conn, init_db, seed_demo_data
 
 
 def _count_demo_appointments() -> int:
+    get_conn, _, _ = _storage_exports()
     conn = get_conn()
     try:
         row = conn.execute(
@@ -22,7 +32,7 @@ def _count_demo_appointments() -> int:
             FROM appointments
             WHERE patient_id LIKE ?
             """,
-        ('demo-%',),
+            ('demo-%',),
         ).fetchone()
         return int(row['total']) if row else 0
     finally:
@@ -30,6 +40,7 @@ def _count_demo_appointments() -> int:
 
 
 def _count_demo_users() -> int:
+    get_conn, _, _ = _storage_exports()
     conn = get_conn()
     try:
         row = conn.execute(
@@ -38,7 +49,7 @@ def _count_demo_users() -> int:
             FROM patients
             WHERE patient_id LIKE ?
             """,
-        ('demo-%',),
+            ('demo-%',),
         ).fetchone()
         return int(row['total']) if row else 0
     finally:
@@ -58,6 +69,7 @@ def _confirm_continue(existing_demo_users: int) -> bool:
 
 
 def main() -> None:
+    _, init_db, seed_demo_data = _storage_exports()
     init_db()
 
     existing_demo_users = _count_demo_users()
@@ -79,4 +91,3 @@ def main() -> None:
 
 if __name__ == '__main__':
     main()
-
