@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, File, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 from API.rag.schemas import (
@@ -16,8 +16,17 @@ from API.rag.schemas import (
     RagModelOut,
     RagRetrieveDebugOut,
     RagSeedOut,
+    RagVoiceConfigOut,
+    RagVoiceTranscribeOut,
 )
 from API.rag.services.rag_service import get_rag_service
+from API.rag.services.transcription.errors import (
+    TranscriptionFeatureDisabledError,
+    TranscriptionProviderFailureError,
+    TranscriptionProviderUnavailableError,
+    TranscriptionValidationError,
+)
+from API.rag.services.transcription.service import TranscriptionService
 from Chatbot.backend.app.auth.utils import get_authenticated_patient
 from Chatbot.backend.app.core.settings import settings
 
@@ -66,6 +75,16 @@ def rag_health():
 @router.get("/models", response_model=list[RagModelOut])
 def rag_models():
     return [RagModelOut(**model) for model in get_rag_service().models()]
+
+
+@router.get("/voice/config", response_model=RagVoiceConfigOut)
+def rag_voice_config():
+    return RagVoiceConfigOut(
+        voice_input_enabled=bool(settings.voice_input_enabled),
+        voice_output_enabled=bool(settings.voice_output_enabled),
+        provider=(settings.voice_transcription_provider if settings.voice_input_enabled else None),
+        max_duration_seconds=max(5, int(settings.voice_max_duration_seconds)),
+    )
 
 
 @router.post("/seed", response_model=RagSeedOut)
@@ -150,6 +169,67 @@ async def rag_chat_end(request: Request):
     except RuntimeError:
         return _error(409, "Session has already been finalized", "SESSION_FINALIZED")
     return RagChatEndOut(**result)
+
+
+@router.post(
+    "/chat/transcribe",
+    response_model=RagVoiceTranscribeOut,
+    responses={
+        400: {"description": "Bad Request"},
+        403: {"description": "Feature Disabled"},
+        415: {"description": "Unsupported Media Type"},
+        502: {"description": "Provider Failure"},
+        503: {"description": "Provider Unavailable"},
+        500: {"description": "Internal Server Error"},
+    },
+)
+async def rag_chat_transcribe(file: UploadFile | None = File(default=None)):
+    if not settings.voice_input_enabled:
+        return _error(403, "Voice input feature is disabled", "FEATURE_DISABLED")
+    if file is None:
+        return _error(400, "Audio file is required", "MISSING_FILE", "file")
+
+    filename = str(file.filename or "").strip()
+    if not filename:
+        await file.close()
+        return _error(400, "Uploaded file name is required", "MISSING_FILE", "file")
+
+    content_type = str(file.content_type or "").strip() or None
+    try:
+        audio_bytes = await file.read()
+    finally:
+        await file.close()
+
+    if not audio_bytes:
+        return _error(400, "Audio file is empty", "EMPTY_AUDIO", "file")
+
+    service = TranscriptionService()
+    try:
+        result = service.transcribe(
+            audio_bytes=audio_bytes,
+            filename=filename,
+            content_type=content_type,
+        )
+    except TranscriptionFeatureDisabledError:
+        return _error(403, "Voice input feature is disabled", "FEATURE_DISABLED")
+    except TranscriptionValidationError as exc:
+        detail = str(exc) or "Invalid audio file"
+        status_code = 415 if "Unsupported audio" in detail else 400
+        code = "UNSUPPORTED_MEDIA_TYPE" if status_code == 415 else "INVALID_AUDIO"
+        return _error(status_code, detail, code, "file")
+    except TranscriptionProviderUnavailableError as exc:
+        return _error(503, str(exc) or "Transcription provider unavailable", "TRANSCRIPTION_UNAVAILABLE")
+    except TranscriptionProviderFailureError as exc:
+        return _error(502, str(exc) or "Transcription failed", "TRANSCRIPTION_FAILED")
+    except Exception:
+        return _error(500, "Unexpected transcription error", "INTERNAL_SERVER_ERROR")
+
+    return RagVoiceTranscribeOut(
+        success=True,
+        transcript=result.transcript,
+        provider=result.provider,
+        bytes_processed=len(audio_bytes),
+    )
 
 
 @router.post("/retrieve/debug", response_model=RagRetrieveDebugOut)
