@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     rag_openai_base_url: str = Field(default="http://127.0.0.1:8005/v1", alias="RAG_OPENAI_BASE_URL")
     rag_openai_api_key: str = Field(default="local-dev-key", alias="RAG_OPENAI_API_KEY")
     enable_prompt_logging: bool = Field(default=False, alias="ENABLE_PROMPT_LOGGING")
+    prompt_log_format: str = Field(default="both", alias="PROMPT_LOG_FORMAT")
 
     class Config:
         env_file = ".env"
