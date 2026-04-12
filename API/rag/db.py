@@ -213,6 +213,7 @@ CREATE TABLE IF NOT EXISTS rag.patient_chat_sessions (
   session_id TEXT PRIMARY KEY,
   patient_id TEXT NOT NULL REFERENCES rag.patients(patient_id),
   clinic_id TEXT NOT NULL,
+  preferred_language TEXT NOT NULL DEFAULT 'en',
   started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   ended_at TIMESTAMPTZ
 );
@@ -361,6 +362,8 @@ ALTER TABLE rag.retrieval_traces
   ADD COLUMN IF NOT EXISTS source_count_patient INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE rag.retrieval_traces
   ADD COLUMN IF NOT EXISTS source_count_clinic INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE rag.patient_chat_sessions
+  ADD COLUMN IF NOT EXISTS preferred_language TEXT NOT NULL DEFAULT 'en';
 
 ALTER TABLE rag.llm_runs
   ADD COLUMN IF NOT EXISTS turn_id TEXT;

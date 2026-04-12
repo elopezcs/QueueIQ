@@ -9,12 +9,53 @@ You MUST follow these rules:
 - Keep it under ~10 turns total unless explicitly extended by the system.
 """
 
-DEFAULT_DISCLAIMERS = [
-    "This chat is for pre-intake support before clinic visits.",
-    "This tool provides operational guidance only. It is not a medical diagnosis.",
-    "If you think this is an emergency or severe, seek urgent in-person care or call local emergency services.",
-    "Wait-time estimates are not guaranteed and may change.",
-]
+LANGUAGE_INSTRUCTION = (
+    "- Generate all user-facing strings in {language_name}.\n"
+    "- Keep JSON keys exactly as requested in the schema.\n"
+    "- Do not translate field names or enum values."
+)
+
+_DISCLAIMERS_BY_LANGUAGE = {
+    "en": [
+        "This chat is for pre-intake support before clinic visits.",
+        "This tool provides operational guidance only. It is not a medical diagnosis.",
+        "If you think this is an emergency or severe, seek urgent in-person care or call local emergency services.",
+        "Wait-time estimates are not guaranteed and may change.",
+    ],
+    "fr": [
+        "Ce clavardage sert au pre-triage avant les visites en clinique.",
+        "Cet outil fournit uniquement des conseils operationnels. Ce n'est pas un diagnostic medical.",
+        "Si vous pensez qu'il s'agit d'une urgence ou d'un cas grave, consultez rapidement en personne ou appelez les services d'urgence locaux.",
+        "Les estimations de temps d'attente ne sont pas garanties et peuvent changer.",
+    ],
+    "es": [
+        "Este chat sirve para el pretriaje antes de las visitas en la clinica.",
+        "Esta herramienta solo ofrece orientacion operativa. No es un diagnostico medico.",
+        "Si cree que se trata de una emergencia o algo grave, busque atencion presencial urgente o llame a los servicios de emergencia locales.",
+        "Las estimaciones de tiempo de espera no estan garantizadas y pueden cambiar.",
+    ],
+}
+
+DEFAULT_DISCLAIMERS = _DISCLAIMERS_BY_LANGUAGE["en"]
+
+
+def normalize_language(language: str | None) -> str:
+    normalized = str(language or "").strip().lower()
+    return normalized if normalized in {"en", "fr", "es"} else "en"
+
+
+def language_name(language: str) -> str:
+    normalized = normalize_language(language)
+    if normalized == "fr":
+        return "French"
+    if normalized == "es":
+        return "Spanish"
+    return "English"
+
+
+def disclaimers_for_language(language: str | None) -> list[str]:
+    normalized = normalize_language(language)
+    return list(_DISCLAIMERS_BY_LANGUAGE[normalized])
 
 
 def _patient_context_block(patient_context: str | None) -> str:
@@ -30,9 +71,13 @@ def next_turn_prompts(
     turn_count: int,
     max_turns: int,
     patient_context: str | None = None,
+    language: str = "en",
 ) -> tuple[str, str]:
+    normalized_language = normalize_language(language)
+    language_rule = LANGUAGE_INSTRUCTION.format(language_name=language_name(normalized_language))
     system_prompt = (
         f"{SYSTEM_POLICY}\n"
+        f"{language_rule}\n"
         "Return JSON only. Never return markdown fences."
     )
     user_prompt = (
@@ -67,9 +112,13 @@ def final_classification_prompts(
     clinic_context: str,
     transcript: str,
     patient_context: str | None = None,
+    language: str = "en",
 ) -> tuple[str, str]:
+    normalized_language = normalize_language(language)
+    language_rule = LANGUAGE_INSTRUCTION.format(language_name=language_name(normalized_language))
     system_prompt = (
         f"{SYSTEM_POLICY}\n"
+        f"{language_rule}\n"
         "Return JSON only. Never return markdown fences."
     )
     user_prompt = (

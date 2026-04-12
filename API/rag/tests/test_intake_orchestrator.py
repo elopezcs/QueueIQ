@@ -245,6 +245,86 @@ def test_prompt_includes_no_redundant_history_constraints():
     assert "Any new allergies or reactions since your last update?" in user_prompt
 
 
+def test_prompt_includes_language_instruction_for_french():
+    system_prompt, _user_prompt = next_turn_prompts(
+        clinic_context='{"clinic_id":"clinic_1"}',
+        transcript="ASSISTANT: Bonjour\nUSER: Douleur a la gorge",
+        turn_count=1,
+        max_turns=10,
+        patient_context="- [allergy] Penicillin reaction: Rash",
+        language="fr",
+    )
+    assert "Generate all user-facing strings in French." in system_prompt
+
+
+def test_prompt_includes_language_instruction_for_spanish():
+    system_prompt, _user_prompt = next_turn_prompts(
+        clinic_context='{"clinic_id":"clinic_1"}',
+        transcript="ASSISTANT: Hola\nUSER: Dolor de garganta",
+        turn_count=1,
+        max_turns=10,
+        patient_context="- [allergy] Penicillin reaction: Rash",
+        language="es",
+    )
+    assert "Generate all user-facing strings in Spanish." in system_prompt
+
+
+def test_first_message_and_disclaimers_localize_for_french():
+    orchestrator = RagIntakeOrchestrator()
+    clinic = {"name": "Clinique Test"}
+    message, disclaimers = orchestrator.first_message(clinic=clinic, language="fr")
+    assert "Bienvenue." in message
+    assert "pre-triage" in message
+    assert isinstance(disclaimers, list) and disclaimers
+    assert "Ce clavardage sert au pre-triage avant les visites en clinique." in disclaimers
+
+
+def test_first_message_and_disclaimers_localize_for_spanish():
+    orchestrator = RagIntakeOrchestrator()
+    clinic = {"name": "Clinica Test"}
+    message, disclaimers = orchestrator.first_message(clinic=clinic, language="es")
+    assert "Bienvenido." in message
+    assert "pretriaje" in message
+    assert isinstance(disclaimers, list) and disclaimers
+    assert "Este chat sirve para el pretriaje antes de las visitas en la clinica." in disclaimers
+
+
+def test_finalize_fallback_explanation_localizes_for_spanish(monkeypatch):
+    class _SpanishPlaceholderFinalizeAdapter:
+        def generate_structured(self, *, model_name: str, system_prompt: str, user_prompt: str):
+            _ = model_name, system_prompt, user_prompt
+            return {
+                "urgency_band": "medium",
+                "visit_category": "general",
+                "explanation": "Resumen operativo basado en sus respuestas.",
+            }
+
+    monkeypatch.setattr("API.rag.orchestrators.intake_orchestrator.active_adapter", lambda: _SpanishPlaceholderFinalizeAdapter())
+    monkeypatch.setattr("API.rag.orchestrators.intake_orchestrator.active_model", lambda: _FakeModel())
+
+    orchestrator = RagIntakeOrchestrator()
+    clinic = {
+        "id": "clinic_1",
+        "name": "Clinic One",
+        "address_or_city": "Kitchener",
+        "hours": {"monday": "08:00-18:00"},
+        "mock_capacity": {"servers_total": 3, "avg_service_minutes": 12},
+    }
+    transcript = [
+        {"role": "assistant", "content": "Bienvenido. Que le trae hoy?"},
+        {"role": "user", "content": "Tengo tos y dolor de garganta desde ayer."},
+    ]
+    outputs = orchestrator.finalize(
+        clinic=clinic,
+        transcript=transcript,
+        patient_context=None,
+        language="es",
+    )
+    assert outputs["visit_category"] == "general"
+    assert outputs["urgency_band"] == "medium"
+    assert "Con base en los detalles de su pretriaje" in outputs["explanation"]
+
+
 def test_known_allergy_question_is_rewritten_to_delta(monkeypatch):
     monkeypatch.setattr("API.rag.orchestrators.intake_orchestrator.active_adapter", lambda: _KnownAllergyQuestionAdapter())
     monkeypatch.setattr("API.rag.orchestrators.intake_orchestrator.active_model", lambda: _FakeModel())

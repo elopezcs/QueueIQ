@@ -151,6 +151,16 @@ export default function App() {
   const isStaffUser = useMemo(() => String(currentUser?.role || '').toLowerCase() === 'staff', [currentUser]);
   const isManagerUser = useMemo(() => String(currentUser?.role || '').toLowerCase() === 'manager', [currentUser]);
   const selectedClinic = useMemo(() => clinics.find((clinic) => clinic.id === clinicId) || null, [clinics, clinicId]);
+  const preferredLanguage = useMemo(
+    () => {
+      const normalized = String(currentUser?.medical_profile?.preferred_language || 'en').toLowerCase();
+      if (normalized === 'fr' || normalized === 'es') {
+        return normalized;
+      }
+      return 'en';
+    },
+    [currentUser],
+  );
   const activeDisclaimers = useMemo(
     () =>
       disclaimers.length > 0
@@ -478,7 +488,7 @@ export default function App() {
     setBookingNotice('');
     setIsModalOpen(true);
     try {
-      const response = await startChat(targetClinicId);
+      const response = await startChat(targetClinicId, preferredLanguage);
       setSessionId(response.session_id);
       setDisclaimers(response.disclaimers || []);
       setMessages([{ role: 'assistant', content: response.assistant_message }]);
@@ -529,7 +539,7 @@ export default function App() {
     setProgress({ turn_count: 0, max_turns: 10 });
     setBookingNotice('');
     try {
-      const response = await startChat(clinicId);
+      const response = await startChat(clinicId, preferredLanguage);
       setSessionId(response.session_id);
       setDisclaimers(response.disclaimers || []);
       setMessages([{ role: 'assistant', content: response.assistant_message }]);
@@ -745,6 +755,7 @@ export default function App() {
             loginRequired={loginRequired}
             onLoginClick={handleLoginRedirect}
             onRegisterClick={handleRegisterRedirect}
+            preferredLanguage={preferredLanguage}
           />
           {loading ? <div className="toast">Working...</div> : null}
         </>

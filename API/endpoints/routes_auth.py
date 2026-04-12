@@ -144,6 +144,19 @@ def _optional_profile_number(value: object, field: str, *, minimum: float = 0.0,
     return round(number, 1)
 
 
+def _optional_preferred_language(value: object):
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return error_response(422, 'preferred_language must be a string', 'INVALID_FORMAT', 'preferred_language')
+    normalized = value.strip().lower()
+    if not normalized:
+        return None
+    if normalized not in {'en', 'fr', 'es'}:
+        return error_response(422, 'preferred_language must be one of: en, fr, es', 'INVALID_FORMAT', 'preferred_language')
+    return normalized
+
+
 def _parse_patient_profile_payload(body: dict[str, object]):
     field_specs = {
         'date_of_birth': ('text', 32),
@@ -173,6 +186,10 @@ def _parse_patient_profile_payload(body: dict[str, object]):
         if hasattr(result, 'status_code'):
             return result
         parsed[field] = result
+    preferred_language = _optional_preferred_language(body.get('preferred_language'))
+    if hasattr(preferred_language, 'status_code'):
+        return preferred_language
+    parsed['preferred_language'] = preferred_language
     return parsed
 
 

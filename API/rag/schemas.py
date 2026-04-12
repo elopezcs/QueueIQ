@@ -30,6 +30,7 @@ class RagSeedOut(BaseModel):
 
 class RagChatStartIn(BaseModel):
     clinic_id: constr(min_length=1, max_length=64)  # type: ignore
+    preferred_language: Literal["en", "fr", "es"] | None = None
 
 
 class RagChatStartOut(BaseModel):

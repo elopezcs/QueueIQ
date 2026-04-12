@@ -189,11 +189,16 @@ export async function createQueuePatientRecord(payload) {
   });
 }
 
-export async function startChat(clinicId) {
+export async function startChat(clinicId, preferredLanguage = '') {
+  const payload = { clinic_id: clinicId };
+  const normalizedLanguage = String(preferredLanguage || '').trim().toLowerCase();
+  if (normalizedLanguage === 'en' || normalizedLanguage === 'fr' || normalizedLanguage === 'es') {
+    payload.preferred_language = normalizedLanguage;
+  }
   return apiFetch('/rag/chat/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ clinic_id: clinicId }),
+    body: JSON.stringify(payload),
   });
 }
 

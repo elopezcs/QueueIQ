@@ -81,6 +81,18 @@ def _required_text(body: dict[str, Any], field: str, max_length: int = 2000):
     return cleaned
 
 
+def _preferred_language(body: dict[str, Any]) -> str:
+    raw = body.get("preferred_language")
+    if raw is None:
+        return "en"
+    if not isinstance(raw, str):
+        return "en"
+    normalized = raw.strip().lower()
+    if normalized in {"en", "fr", "es"}:
+        return normalized
+    return "en"
+
+
 @router.get("/health", response_model=RagHealthOut)
 def rag_health():
     return RagHealthOut(**get_rag_service().health())
@@ -123,11 +135,13 @@ async def rag_chat_start(request: Request):
     clinic_id = _required_text(body, "clinic_id", 64)
     if isinstance(clinic_id, JSONResponse):
         return clinic_id
+    preferred_language = _preferred_language(body)
     try:
         result = get_rag_service().start_session(
             patient_id=patient["patient_id"],
             clinic_id=clinic_id,
             patient_profile=patient,
+            preferred_language=preferred_language,
         )
     except ValueError:
         return _error(404, "Clinic not found", "NOT_FOUND")

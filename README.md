@@ -417,6 +417,11 @@ Required:
 - `POST /rag/chat/turn`
 - `POST /rag/chat/end`
 
+`POST /rag/chat/start` accepts an optional `preferred_language` field (`en`, `fr`, or `es`).
+When omitted, QueueIQ defaults to English. When set to `fr` or `es`, the intake assistant
+returns user-facing chat text and disclaimers in the selected language while preserving the same
+JSON response keys and enum values.
+
 Debug:
 - `POST /rag/retrieve/debug`
 - `GET /rag/session/{session_id}`

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { getVoiceConfig, transcribeVoiceAudio } from "../api.js";
 import { useAssistantTTS } from "../features/voice/useAssistantTTS.js";
 
-export default function ChatWidget({ messages, onSend, disabled, done, progress, onFinish, onReset, loading, hasResults = false, loginRequired = false, onLoginClick, onRegisterClick }) {
+export default function ChatWidget({ messages, onSend, disabled, done, progress, onFinish, onReset, loading, hasResults = false, loginRequired = false, onLoginClick, onRegisterClick, preferredLanguage = "en" }) {
   const [text, setText] = useState("");
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [voiceOutputEnabled, setVoiceOutputEnabled] = useState(false);
@@ -113,9 +113,9 @@ export default function ChatWidget({ messages, onSend, disabled, done, progress,
     }
 
     const latestContent = assistantMessages[assistantMessages.length - 1];
-    const spoke = speak(latestContent);
+    const spoke = speak(latestContent, { language: preferredLanguage });
     if (spoke) previousAssistantCountRef.current = assistantMessages.length;
-  }, [messages, speak, ttsMuted, ttsSupported, voiceOutputEnabled]);
+  }, [messages, preferredLanguage, speak, ttsMuted, ttsSupported, voiceOutputEnabled]);
 
   useEffect(() => {
     if (ttsMuted && isTtsSpeaking) {
@@ -276,7 +276,7 @@ export default function ChatWidget({ messages, onSend, disabled, done, progress,
     if (!voiceOutputEnabled || !ttsSupported || ttsMuted) {
       return;
     }
-    replay(content);
+    replay(content, { language: preferredLanguage });
   }
 
   return (

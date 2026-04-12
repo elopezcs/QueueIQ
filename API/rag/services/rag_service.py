@@ -24,6 +24,11 @@ def _hash_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _normalize_language(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in {"en", "fr", "es"} else "en"
+
+
 class RagService:
     def __init__(self) -> None:
         self.db_ready, self.pgvector_enabled = init_rag_db()
@@ -388,6 +393,7 @@ class RagService:
         patient_id: str,
         clinic_id: str,
         patient_profile: dict[str, Any] | None = None,
+        preferred_language: str | None = None,
     ) -> dict[str, Any]:
         clinic = self._resolve_clinic(clinic_id)
         if not clinic:
@@ -410,15 +416,21 @@ class RagService:
         )
 
         session_id = f"rag_sess_{secrets.token_hex(12)}"
+        session_language = _normalize_language(preferred_language)
         execute(
-            "INSERT INTO rag.patient_chat_sessions(session_id, patient_id, clinic_id, started_at) VALUES(%s,%s,%s,%s)",
-            (session_id, patient_id, clinic_id, _now_iso()),
+            (
+                "INSERT INTO rag.patient_chat_sessions("
+                "session_id, patient_id, clinic_id, preferred_language, started_at"
+                ") VALUES(%s,%s,%s,%s,%s)"
+            ),
+            (session_id, patient_id, clinic_id, session_language, _now_iso()),
         )
         self._upsert_public_patient(patient_id=patient_id, patient_profile=patient_profile)
         self._insert_public_session(session_id=session_id, clinic_id=clinic_id, patient_id=patient_id)
         logger.info("RAG session started: session_id=%s patient_id=%s clinic_id=%s", session_id, patient_id, clinic_id)
         first, disclaimers = self.intake_orchestrator.first_message(
             clinic=clinic,
+            language=session_language,
         )
         self._insert_rag_message(session_id=session_id, role="assistant", content=first)
         self._insert_public_message(session_id=session_id, role="assistant", content=first)
@@ -426,7 +438,10 @@ class RagService:
 
     def _session(self, session_id: str) -> dict[str, Any] | None:
         rows = fetch_all(
-            "SELECT session_id, patient_id, clinic_id, started_at, ended_at FROM rag.patient_chat_sessions WHERE session_id=%s LIMIT 1",
+            (
+                "SELECT session_id, patient_id, clinic_id, preferred_language, started_at, ended_at "
+                "FROM rag.patient_chat_sessions WHERE session_id=%s LIMIT 1"
+            ),
             (session_id,),
         )
         return rows[0] if rows else None
@@ -444,6 +459,7 @@ class RagService:
         clinic = self._resolve_clinic(str(session["clinic_id"]))
         if not clinic:
             raise ValueError("CLINIC_NOT_FOUND")
+        session_language = _normalize_language(str(session.get("preferred_language") or "en"))
 
         route = route_query(user_message)
         turn_id, _ = self._create_turn(
@@ -476,6 +492,7 @@ class RagService:
                 clinic=clinic,
                 transcript=transcript,
                 patient_context=patient_context,
+                language=session_language,
                 session_id=session_id,
                 clinic_id=str(session["clinic_id"]),
                 patient_id=patient_id,
@@ -544,6 +561,7 @@ class RagService:
         clinic = self._resolve_clinic(str(session["clinic_id"]))
         if not clinic:
             raise ValueError("CLINIC_NOT_FOUND")
+        session_language = _normalize_language(str(session.get("preferred_language") or "en"))
 
         transcript = self._transcript(session_id)
         user_messages = [
@@ -559,6 +577,7 @@ class RagService:
             clinic=clinic,
             transcript=transcript,
             patient_context=patient_context,
+            language=session_language,
             session_id=session_id,
             clinic_id=str(session["clinic_id"]),
             patient_id=patient_id,
