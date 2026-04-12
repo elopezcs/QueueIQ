@@ -36,6 +36,21 @@ cd Chatbot\frontend
 npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
+## Appointment Confirmation Previews
+
+Each successful frontend Book Now booking (`POST /appointments`) generates a local HTML confirmation artifact for that appointment.
+
+- Scope: local demo/validation artifact only (no SMTP/email delivery)
+- Output folder: `Chatbot/backend/reports/email_previews/bookings/`
+- Filename pattern: `appointment_confirmation_<appointment_id>.html`
+- Confirmation number format in the HTML: 6-character uppercase alphanumeric (`A-Z`, `0-9`)
+
+Quick local verification:
+1. Start QueueIQ and complete a booking in the Chatbot frontend using Book Now.
+2. Open `Chatbot/backend/reports/email_previews/bookings/`.
+3. Confirm a new `appointment_confirmation_<appointment_id>.html` file was created.
+4. Open the file in a browser and verify the appointment details and confirmation number are present.
+
 ## Notes
 
 - The backend runs in stub mode if `OPENAI_API_KEY` is not set.

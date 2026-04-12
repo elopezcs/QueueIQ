@@ -283,6 +283,27 @@ macOS or Linux:
 ./.venv/bin/python -c "import sqlite3; conn=sqlite3.connect('Chatbot/backend/app.db'); rows=conn.execute(\"SELECT appointment_id, patient_id, clinic_id, scheduled_for, status, description FROM appointments ORDER BY scheduled_for DESC LIMIT 20\").fetchall(); print(rows)"
 ```
 
+### Appointment Confirmation HTML Previews (Book Now)
+
+When a patient completes booking through the frontend Book Now flow (`POST /appointments`), QueueIQ generates one local HTML confirmation preview per appointment.
+
+- Scope: local artifact generation for demos and validation only (no real email send)
+- Output folder: `Chatbot/backend/reports/email_previews/bookings/`
+- Filename pattern: `appointment_confirmation_<appointment_id>.html`
+- Confirmation number in HTML: dynamically generated 6-character uppercase alphanumeric code (`A-Z`, `0-9`)
+
+Quick check (Windows PowerShell):
+
+```powershell
+Get-ChildItem "Chatbot\backend\reports\email_previews\bookings" -Filter "appointment_confirmation_*.html" | Sort-Object LastWriteTime -Descending | Select-Object -First 5 Name, LastWriteTime
+```
+
+Quick check (macOS or Linux):
+
+```bash
+ls -lt Chatbot/backend/reports/email_previews/bookings/appointment_confirmation_*.html | head -n 5
+```
+
 ## Notes
 
 - The launcher skips services that are already reachable on their expected ports.
