@@ -16,6 +16,7 @@ export default function ChatbotModal({
   loginRequired = false,
   onLoginClick,
   onRegisterClick,
+  preferredLanguage = "en",
 }) {
   if (!isOpen) return null;
 
@@ -43,6 +44,7 @@ export default function ChatbotModal({
             loginRequired={loginRequired}
             onLoginClick={onLoginClick}
             onRegisterClick={onRegisterClick}
+            preferredLanguage={preferredLanguage}
           />
         </div>
       </div>

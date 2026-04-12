@@ -64,6 +64,7 @@ class ChatEndOut(BaseModel):
 
 
 class PatientMedicalProfileOut(BaseModel):
+    preferred_language: Literal['en', 'fr', 'es'] | None = None
     date_of_birth: str | None = None
     sex: str | None = None
     height_cm: float | None = None

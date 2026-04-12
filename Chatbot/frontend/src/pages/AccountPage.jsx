@@ -4,6 +4,7 @@ const QUEUECONTROL_DASHBOARD_URL = 'http://127.0.0.1:8501';
 
 const EMPTY_PATIENT_PROFILE = {
   fullName: '',
+  preferredLanguage: 'en',
   dateOfBirth: '',
   sex: '',
   heightCm: '',
@@ -312,6 +313,7 @@ function normalizePatientProfile(currentUser) {
   const profile = currentUser?.medical_profile || {};
   return {
     fullName: currentUser?.full_name || '',
+    preferredLanguage: profile.preferred_language || 'en',
     dateOfBirth: profile.date_of_birth || '',
     sex: profile.sex || '',
     heightCm: profile.height_cm ?? '',
@@ -539,6 +541,7 @@ function PatientProfileSection({ clinics, currentUser, onBeginBookingJourney, on
     }
     await onUpdateProfile({
       full_name: form.fullName.trim(),
+      preferred_language: form.preferredLanguage || 'en',
       date_of_birth: form.dateOfBirth,
       sex: form.sex,
       height_cm: form.heightCm === '' ? null : Number(form.heightCm),
@@ -574,6 +577,14 @@ function PatientProfileSection({ clinics, currentUser, onBeginBookingJourney, on
           <div><div className="eyebrow-label">Health Profile</div><h3>Update personal and medical details</h3></div>
           <div className="profile-form-grid two-column">
             <div className="field"><label htmlFor="patient-full-name">Full name</label><input id="patient-full-name" type="text" value={form.fullName} onChange={(event) => updateField('fullName', event.target.value)} className={errors.fullName ? 'input-error' : ''} />{errors.fullName ? <div className="field-error-text">{errors.fullName}</div> : null}</div>
+            <div className="field">
+              <label htmlFor="patient-preferred-language">Preferred language</label>
+              <select id="patient-preferred-language" value={form.preferredLanguage} onChange={(event) => updateField('preferredLanguage', event.target.value)}>
+                <option value="en">English</option>
+                <option value="fr">French</option>
+                <option value="es">Spanish</option>
+              </select>
+            </div>
             <div className="field"><label htmlFor="patient-dob">Date of birth</label><input id="patient-dob" type="date" value={form.dateOfBirth} onChange={(event) => updateField('dateOfBirth', event.target.value)} /></div>
             <div className="field"><label htmlFor="patient-sex">Sex</label><input id="patient-sex" type="text" value={form.sex} onChange={(event) => updateField('sex', event.target.value)} /></div>
             <div className="field"><label htmlFor="patient-blood-group">Blood group</label><input id="patient-blood-group" type="text" value={form.bloodGroup} onChange={(event) => updateField('bloodGroup', event.target.value)} /></div>

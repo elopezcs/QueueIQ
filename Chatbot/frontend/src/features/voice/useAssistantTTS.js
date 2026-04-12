@@ -39,7 +39,7 @@ export function useAssistantTTS() {
   }, []);
 
   const speak = useCallback(
-    (rawText) => {
+    (rawText, options = {}) => {
       const synth = speechRef.current;
       if (!synth) return false;
 
@@ -49,6 +49,14 @@ export function useAssistantTTS() {
       try {
         synth.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
+        const normalizedLanguage = String(options?.language || "").trim().toLowerCase();
+        if (normalizedLanguage === "fr") {
+          utterance.lang = "fr-FR";
+        } else if (normalizedLanguage === "es") {
+          utterance.lang = "es-US";
+        } else {
+          utterance.lang = "en-CA";
+        }
         utterance.onstart = () => {
           setIsSpeaking(true);
           setLastError("");
