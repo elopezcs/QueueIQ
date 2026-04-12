@@ -88,6 +88,20 @@ macOS or Linux:
 export OPENAI_API_KEY="your_api_key_here"
 ```
 
+Optional appointment confirmation email flags (disabled by default):
+
+- `QUEUEIQ_EMAIL_ENABLED`: set to `true` to allow SMTP send attempts for appointment confirmation emails
+- `QUEUEIQ_EMAIL_SENDER`: sender email account used for SMTP auth (Gmail account)
+- `QUEUEIQ_EMAIL_APP_PASSWORD`: app password for the sender account
+
+Example:
+
+```env
+QUEUEIQ_EMAIL_ENABLED=false
+QUEUEIQ_EMAIL_SENDER=your_email@gmail.com
+QUEUEIQ_EMAIL_APP_PASSWORD=your_app_password
+```
+
 ## Single Command Launcher
 
 From the repo root, use the shared environment explicitly.

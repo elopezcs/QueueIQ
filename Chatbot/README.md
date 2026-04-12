@@ -51,6 +51,20 @@ Quick local verification:
 3. Confirm a new `appointment_confirmation_<appointment_id>.html` file was created.
 4. Open the file in a browser and verify the appointment details and confirmation number are present.
 
+Optional email-send environment variables:
+
+- `QUEUEIQ_EMAIL_ENABLED`: set to `true` to allow SMTP send attempts for appointment confirmation emails
+- `QUEUEIQ_EMAIL_SENDER`: sender email account used for SMTP auth (Gmail account)
+- `QUEUEIQ_EMAIL_APP_PASSWORD`: app password for the sender account
+
+Example:
+
+```env
+QUEUEIQ_EMAIL_ENABLED=false
+QUEUEIQ_EMAIL_SENDER=your_email@gmail.com
+QUEUEIQ_EMAIL_APP_PASSWORD=your_app_password
+```
+
 ## Notes
 
 - The backend runs in stub mode if `OPENAI_API_KEY` is not set.
