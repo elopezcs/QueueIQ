@@ -2248,7 +2248,6 @@ def render_sidebar(
 ) -> str:
 	with st.sidebar:
 		simulation_enabled = backend.sync_simulation_state()
-		simulation_enabled = backend.sync_simulation_state()
 		st.markdown(
 			f"""
 			<div class=\"sidebar-brand\">
@@ -2261,8 +2260,6 @@ def render_sidebar(
 		)
 
 		try:
-			# sidebar_queue_df = backend.prepare_queue_df(backend.api.get_queue_df())
-			sidebar_queue_df = backend.prepare_queue_df(backend.db_manager.fetch_queue())
 			# sidebar_queue_df = backend.prepare_queue_df(backend.api.get_queue_df())
 			sidebar_queue_df = backend.prepare_queue_df(backend.db_manager.fetch_queue())
 			total_waiting_system = len(sidebar_queue_df)
@@ -2308,20 +2305,6 @@ def render_sidebar(
 			''',
 			unsafe_allow_html=True,
 		)
-
-		updated_simulation_enabled = st.toggle(
-			"Queue simulation enabled",
-			value=simulation_enabled,
-			key=f"toggle_simulation_{title}",
-			help="Turn automatic arrivals and doctor processing on or off across all dashboards.",
-		)
-		if updated_simulation_enabled != simulation_enabled:
-			simulation_enabled = backend.set_simulation_enabled(updated_simulation_enabled)
-			st.toast(
-				"Queue simulation resumed across all dashboards."
-				if simulation_enabled
-				else "Queue simulation turned off across all dashboards."
-			)
 
 		simulation_status = "Running" if simulation_enabled else "Off"
 		simulation_caption = (
