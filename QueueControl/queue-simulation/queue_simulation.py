@@ -1486,61 +1486,8 @@ class QueueSimulationBackend:
 
 		clinic_id = self.clinic_id_by_name.get(clinic_name)
 		if not clinic_id:
-		clinic_id = self.clinic_id_by_name.get(clinic_name)
-		if not clinic_id:
 			return None
 
-		current_time = datetime.now() if now is None else now
-		clinic_df = self.prepare_queue_df(queue_df)
-		recent_df = self.create_empty_queue_df()
-		if not clinic_df.empty:
-			recent_df = clinic_df[clinic_df["arrival_time"] >= (current_time - timedelta(hours=1))]
-
-		avg_wait_last_hour = 0.0
-		if not recent_df.empty:
-			avg_wait_last_hour = float(
-				((current_time - recent_df["arrival_time"]).dt.total_seconds() / 60.0).mean()
-			)
-		elif not clinic_df.empty:
-			avg_wait_last_hour = float(
-				((current_time - clinic_df["arrival_time"]).dt.total_seconds() / 60.0).mean()
-			)
-
-		feature_row = pd.DataFrame([
-			{
-				"clinic_id": clinic_id,
-				"is_weekend": int(current_time.weekday() >= 5),
-				"day_sin": np.sin(2 * np.pi * current_time.weekday() / 7.0),
-				"day_cos": np.cos(2 * np.pi * current_time.weekday() / 7.0),
-				"hour_sin": np.sin(2 * np.pi * current_time.hour / 24.0),
-				"hour_cos": np.cos(2 * np.pi * current_time.hour / 24.0),
-				"queue_length_at_arrival": len(clinic_df),
-				"arrivals_last_1_hour": float(len(recent_df)),
-				"avg_wait_last_1_hour": avg_wait_last_hour,
-			}
-		])
-
-		encoded_row = pd.get_dummies(feature_row, columns=["clinic_id"], prefix="clinic")
-		encoded_row = encoded_row.reindex(
-			columns=list(self.wait_time_model.get("feature_columns", [])),
-			fill_value=0.0,
-		)
-
-		predicted_p50 = max(0.0, float(self.wait_time_model["model"].predict(encoded_row)[0]))
-		clinic_uplifts = self.wait_time_model.get("clinic_p90_uplift_minutes", {})
-		global_uplift = float(self.wait_time_model.get("global_p90_uplift_minutes", 0.0))
-		predicted_p90 = max(
-			predicted_p50,
-			predicted_p50 + float(clinic_uplifts.get(clinic_id, global_uplift)),
-		)
-
-		baseline_doctors = max(1, int(self.wait_time_metrics.get("historical_num_doctors", 2) or 2))
-		current_doctors = max(1, int(self.sim_config["doctors_per_clinic"].get(clinic_name, baseline_doctors)))
-		staffing_factor = baseline_doctors / current_doctors
-
-		predicted_p50 *= staffing_factor
-		predicted_p90 = max(predicted_p50, predicted_p90 * staffing_factor)
-		return predicted_p50, predicted_p90
 		current_time = datetime.now() if now is None else now
 		clinic_df = self.prepare_queue_df(queue_df)
 		recent_df = self.create_empty_queue_df()
@@ -1635,13 +1582,9 @@ class QueueSimulationBackend:
 	def mark_patient_no_show(self, record_id: int) -> None:
 		# self.api.delete_queue_record(record_id)
 		self.db_manager.delete_queue_record(record_id)
-		# self.api.delete_queue_record(record_id)
-		self.db_manager.delete_queue_record(record_id)
 
 	def retriage_patient(self, record_id: int, priority: int) -> None:
 		est_duration = self.get_duration(priority)
-		# self.api.update_patient_triage(record_id, priority, est_duration)
-		self.db_manager.update_patient_triage(record_id, priority, est_duration)
 		# self.api.update_patient_triage(record_id, priority, est_duration)
 		self.db_manager.update_patient_triage(record_id, priority, est_duration)
 
@@ -1668,22 +1611,8 @@ class QueueSimulationBackend:
 		while True:
 			try:
 				simulation_enabled = self.sync_simulation_state()
-				simulation_enabled = self.sync_simulation_state()
 				current_speed = self.sim_config["sim_speed"]
 
-				if simulation_enabled != self._last_simulation_enabled:
-					logger.info(
-						"Queue simulation %s.",
-						"resumed" if simulation_enabled else "paused",
-					)
-					self._last_simulation_enabled = simulation_enabled
-
-				if not simulation_enabled:
-					self.arrivals_paused_for_capacity = False
-					time.sleep(current_speed)
-					continue
-
-				df = self.prepare_queue_df(self.db_manager.fetch_queue())
 				if simulation_enabled != self._last_simulation_enabled:
 					logger.info(
 						"Queue simulation %s.",
@@ -1735,8 +1664,6 @@ class QueueSimulationBackend:
 
 							# self.api.mark_patient_seen(int(patient["record_id"]))
 							self.db_manager.mark_patient_seen(int(patient["record_id"]))
-							# self.api.mark_patient_seen(int(patient["record_id"]))
-							self.db_manager.mark_patient_seen(int(patient["record_id"]))
 							waited_min = (now - patient["arrival_time"]).total_seconds() / 60.0
 							logger.info(
 								f"[{clinic_name}] Doc {doctor_index + 1} took Patient {patient['patient_id']} "
@@ -1753,8 +1680,6 @@ class QueueSimulationBackend:
 						if random.random() < current_prob:
 							new_id = random.randint(1000, 9999)
 							priority = random.choices([1, 2, 3, 4, 5], weights=[5, 10, 50, 25, 10])[0]
-							# self.api.add_patient(
-							self.db_manager.insert_patient(
 							# self.api.add_patient(
 							self.db_manager.insert_patient(
 								clinic_name,
@@ -2073,14 +1998,9 @@ def render_reception_queue_actions(
 		return
 
 	headers = st.columns([1.0, 0.9, 1.35, 1.15, 1.0, 1.0, 1.2])
-	headers = st.columns([1.0, 0.9, 1.35, 1.15, 1.0, 1.0, 1.2])
 	headers[0].markdown("**Patient ID**")
 	headers[1].markdown("**Priority**")
 	headers[2].markdown("**Arrival Time**")
-	headers[3].markdown("**Re-triage**")
-	headers[4].markdown("**Apply**")
-	headers[5].markdown("**No-show**")
-	headers[6].markdown("**Chat**")
 	headers[3].markdown("**Re-triage**")
 	headers[4].markdown("**Apply**")
 	headers[5].markdown("**No-show**")
@@ -2092,16 +2012,13 @@ def render_reception_queue_actions(
 		current_priority = int(patient["priority"])
 		arrival_time = patient["arrival_time"].strftime("%Y-%m-%d %H:%M:%S")
 		chat_session_id = patient.get("chat_session_id")
-		chat_session_id = patient.get("chat_session_id")
 
-		row_cols = st.columns([1.0, 0.9, 1.35, 1.15, 1.0, 1.0, 1.2])
 		row_cols = st.columns([1.0, 0.9, 1.35, 1.15, 1.0, 1.0, 1.2])
 		row_cols[0].write(str(patient_id))
 		row_cols[1].markdown(f"**P{current_priority}**  ")
 		row_cols[1].caption(PRIORITY_LABELS[current_priority])
 		row_cols[2].write(arrival_time)
 
-		new_priority = row_cols[3].selectbox(
 		new_priority = row_cols[3].selectbox(
 			f"New priority for {patient_id}",
 			options=list(PRIORITY_LABELS.keys()),
@@ -2112,12 +2029,10 @@ def render_reception_queue_actions(
 		)
 
 		if row_cols[4].button("Save", key=f"retriage_save_{selected_clinic}_{record_id}"):
-		if row_cols[4].button("Save", key=f"retriage_save_{selected_clinic}_{record_id}"):
 			backend.retriage_patient(record_id, int(new_priority))
 			st.toast(f"Patient {patient_id} re-triaged to P{int(new_priority)}.")
 			st.rerun()
 
-		if row_cols[5].button("Remove", key=f"no_show_{selected_clinic}_{record_id}"):
 		if row_cols[5].button("Remove", key=f"no_show_{selected_clinic}_{record_id}"):
 			backend.mark_patient_no_show(record_id)
 			st.toast(f"Patient {patient_id} removed as a no-show.")
@@ -2516,8 +2431,6 @@ def render_sidebar(
 				new_id = random.randint(1000, 9999)
 				# backend.api.add_patient(
 				backend.db_manager.insert_patient(
-				# backend.api.add_patient(
-				backend.db_manager.insert_patient(
 					selected_clinic,
 					new_id,
 					now,
@@ -2568,17 +2481,11 @@ def render_dashboard_view(
 	@st.fragment(run_every=timedelta(seconds=float(backend.sim_config["sim_speed"])))
 	def _render_dashboard_fragment() -> None:
 		simulation_enabled = backend.sync_simulation_state()
-		simulation_enabled = backend.sync_simulation_state()
 		refresh_now = datetime.now()
 		full_df, clinic_queue_map, df_waiting, surge_prob = get_dashboard_data(
 			backend,
 			selected_clinic,
 			now=refresh_now,
-		)
-		if not simulation_enabled:
-			st.warning(
-				"Queue simulation is off. Automatic arrivals and doctor processing are paused across all dashboards. Reception can still add patients manually from the sidebar.",
-			)
 		)
 		if not simulation_enabled:
 			st.warning(
@@ -2640,14 +2547,6 @@ def render_dashboard_view(
 				backend.get_model_performance_metrics(queue_df=full_df, now=refresh_now),
 				backend.get_wait_time_model_performance_metrics(),
 			)
-			render_section_heading(
-				"Model Performance",
-				"Queue Control models Performance metrics.",
-			)
-			render_model_summary_blocks(
-				backend.get_model_performance_metrics(queue_df=full_df, now=refresh_now),
-				backend.get_wait_time_model_performance_metrics(),
-			)
 			render_manager_live_tables(backend, selected_clinic, df_waiting)
 
 		if show_queue_table:
@@ -2656,11 +2555,6 @@ def render_dashboard_view(
 			with main_cols[0]:
 				render_section_heading(
 					f"Current queue for {selected_clinic}",
-					(
-						"Reception can remove no-shows, update triage, and add patients manually from the sidebar."
-						if enable_reception_actions
-						else ""
-					),
 					(
 						"Reception can remove no-shows, update triage, and add patients manually from the sidebar."
 						if enable_reception_actions
