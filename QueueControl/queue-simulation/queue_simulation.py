@@ -1165,13 +1165,13 @@ class QueueSimulationBackend:
 		if prediction is None:
 			return [
 				(
-					"Estimated wait P50",
+					"Average Estimated Wait Time",
 					"Unavailable",
 					"Train wait_time_predictor_model to enable learned wait-time estimates.",
 					"water",
 				),
 				(
-					"Estimated wait P90",
+					"Maximum Estimated Wait Time",
 					"Unavailable",
 					"Train wait_time_predictor_model to enable learned wait-time estimates.",
 					"peach",
@@ -1181,15 +1181,15 @@ class QueueSimulationBackend:
 		predicted_p50, predicted_p90 = prediction
 		return [
 			(
-				"Estimated wait P50",
+				"Average Estimated Wait Time",
 				format_minutes_label(predicted_p50),
-				"Median expected wait for a new arrival based on the current queue and historical patterns.",
+				"Average expected wait time for a new arrival.",
 				"water",
 			),
 			(
-				"Estimated wait P90",
+				"Maximum Estimated Wait Time",
 				format_minutes_label(predicted_p90),
-				"Higher-end wait estimate to communicate a cautious arrival-time expectation.",
+				"Higher-end wait time estimate for a new arrival.",
 				"peach",
 			),
 		]
@@ -1345,7 +1345,10 @@ def inject_styles() -> None:
 def format_next_up(df_waiting: pd.DataFrame) -> str:
 	if df_waiting.empty:
 		return "None"
-	return str(int(df_waiting.iloc[0]["patient_id"]))
+	patient_id = df_waiting.iloc[0]["patient_id"]
+	if pd.isna(patient_id):
+		return "Unknown"
+	return str(patient_id)
 
 
 def format_average_wait(df_waiting: pd.DataFrame) -> str:
@@ -1516,9 +1519,10 @@ def has_chat_session_id(chat_session_id: object) -> bool:
 	return bool(str(chat_session_id).strip())
 
 
-def fetch_traceability_summary(chat_session_id: str) -> dict[str, object]:
+def fetch_traceability_payload(chat_session_id: str, *, include_messages: bool = False) -> dict[str, object]:
 	encoded_session_id = urllib.parse.quote(chat_session_id, safe="")
-	url = f"{QUEUECONTROL_API_BASE_URL}/traceability/{encoded_session_id}"
+	path = f"/traceability/{encoded_session_id}/detail" if include_messages else f"/traceability/{encoded_session_id}"
+	url = f"{QUEUECONTROL_API_BASE_URL}{path}"
 	request = urllib.request.Request(url, headers={"Accept": "application/json"})
 
 	try:
@@ -1554,7 +1558,43 @@ def render_chat_detail_dialog(
 	if error_message:
 		st.error(error_message)
 	elif payload is not None:
-		st.json(payload, expanded=True)
+		session = payload.get("session") if isinstance(payload, dict) else None
+		session_output = payload.get("session_output") if isinstance(payload, dict) else None
+		messages = payload.get("messages") if isinstance(payload, dict) else None
+
+		if isinstance(session, dict):
+			meta_cols = st.columns(2)
+			meta_cols[0].markdown(f"**Patient ID:** {session.get('patient_id', 'Unknown')}")
+			meta_cols[0].markdown(f"**Clinic ID:** {session.get('clinic_id', 'Unknown')}")
+			meta_cols[1].markdown(f"**Started:** {session.get('started_at', 'Unknown')}")
+			meta_cols[1].markdown(f"**Ended:** {session.get('ended_at') or 'In progress'}")
+
+		if isinstance(session_output, dict):
+			st.markdown("**Visit Summary**")
+			st.markdown(f"**Urgency:** {session_output.get('urgency_band', 'Unknown')}")
+			st.markdown(f"**Category:** {session_output.get('visit_category', 'Unknown')}")
+			st.markdown(f"**Explanation:** {session_output.get('explanation', 'No explanation available.')}")
+			st.caption(
+				f"Wait p50: {session_output.get('wait_p50_minutes', 'N/A')} min | "
+				f"Wait p90: {session_output.get('wait_p90_minutes', 'N/A')} min"
+			)
+
+		st.markdown("**Transcript**")
+		if isinstance(messages, list) and messages:
+			for index, message in enumerate(messages):
+				if not isinstance(message, dict):
+					continue
+				role = str(message.get("role") or "assistant").lower()
+				content = str(message.get("content") or "")
+				created_at = str(message.get("created_at") or "")
+				message_role = role if role in {"user", "assistant"} else "assistant"
+				with st.chat_message(message_role):
+					if content:
+						st.markdown(content)
+					if created_at:
+						st.caption(created_at)
+		else:
+			st.info("No transcript messages are available for this session.")
 	else:
 		st.info("No traceability details are available for this session.")
 
@@ -1582,7 +1622,7 @@ def render_reception_queue_actions(
 
 	for _, patient in df_waiting.iterrows():
 		record_id = int(patient["record_id"])
-		patient_id = int(patient["patient_id"])
+		patient_id = str(patient["patient_id"])
 		current_priority = int(patient["priority"])
 		arrival_time = patient["arrival_time"].strftime("%Y-%m-%d %H:%M:%S")
 		chat_session_id = patient.get("chat_session_id")
@@ -1616,7 +1656,7 @@ def render_reception_queue_actions(
 			cleaned_chat_session_id = str(chat_session_id).strip()
 			if row_cols[6].button("Chat Detail", key=f"chat_detail_{selected_clinic}_{record_id}"):
 				try:
-					traceability_payload = fetch_traceability_summary(cleaned_chat_session_id)
+					traceability_payload = fetch_traceability_payload(cleaned_chat_session_id, include_messages=True)
 				except RuntimeError as exc:
 					render_chat_detail_dialog(
 						cleaned_chat_session_id,
@@ -2006,13 +2046,13 @@ def render_dashboard_view(
 			(
 				"Queue at selected clinic",
 				str(len(df_waiting)),
-				"Patients currently waiting in the active clinic view.",
+				"Patients currently waiting to be served.",
 				"",
 			),
 			(
 				"Next up",
 				next_up,
-				"The next patient expected to be served based on current ordering.",
+				"The next patient expected to be served.",
 				"water",
 			),
 			wait_time_metrics[0],
@@ -2063,7 +2103,7 @@ def render_dashboard_view(
 
 			with main_cols[1]:
 				render_section_heading(
-					"Surge monitor",
+					"",
 					"",
 				)
 				if should_render_surge_monitor(backend):
@@ -2072,7 +2112,7 @@ def render_dashboard_view(
 					st.info("Rush-hour outlook is unavailable. Turn the predictor off and set manual rush-hour probability above 0% to display the surge monitor.")
 		else:
 			render_section_heading(
-				"Surge monitor",
+				"",
 				"",
 			)
 			if should_render_surge_monitor(backend):

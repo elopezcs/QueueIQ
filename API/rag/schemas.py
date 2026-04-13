@@ -160,3 +160,23 @@ class PublicTraceabilitySummaryOut(BaseModel):
     wait_p90_minutes: int = Field(ge=0)
     created_at: datetime
 
+
+class PublicTraceabilityMessageOut(BaseModel):
+    role: str
+    content: str
+    created_at: datetime
+
+
+class PublicTraceabilitySessionOut(BaseModel):
+    session_id: str
+    patient_id: str
+    clinic_id: str
+    started_at: datetime
+    ended_at: datetime | None = None
+
+
+class PublicTraceabilityDetailOut(BaseModel):
+    session: PublicTraceabilitySessionOut
+    messages: list[PublicTraceabilityMessageOut]
+    session_output: PublicTraceabilitySummaryOut | None = None
+

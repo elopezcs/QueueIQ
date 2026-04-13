@@ -836,6 +836,35 @@ class RagService:
         )
         return rows[0] if rows else None
 
+    def public_session_detail(self, *, session_id: str) -> dict[str, Any] | None:
+        session_rows = fetch_all(
+            """
+            SELECT session_id, patient_id, clinic_id, started_at, ended_at
+            FROM rag.patient_chat_sessions
+            WHERE session_id=%s
+            LIMIT 1
+            """,
+            (session_id,),
+        )
+        if not session_rows:
+            return None
+
+        message_rows = fetch_all(
+            """
+            SELECT role, content, created_at
+            FROM rag.patient_chat_messages
+            WHERE session_id=%s
+            ORDER BY id ASC
+            """,
+            (session_id,),
+        )
+
+        return {
+            "session": session_rows[0],
+            "messages": message_rows,
+            "session_output": self.public_intake_summary(session_id=session_id),
+        }
+
     def seed(self) -> dict[str, Any]:
         if not rag_db_enabled():
             return {"ok": False, "patients_seeded": 0, "clinics_seeded": 0, "notes": ["DATABASE_URL not configured"]}

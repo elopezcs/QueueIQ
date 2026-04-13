@@ -24,7 +24,7 @@ def main() -> None:
         backend,
         selected_clinic,
         badge="Patient dashboard",
-        hero_title="Follow your clinic queue in real time",
+        hero_title="Live clinic queue",
         hero_description="See the current queue, estimated wait conditions, and rush-hour pressure for the selected clinic.",
         hero_panel_text=(
             f"Auto-refresh every {backend.sim_config['sim_speed']:.1f} seconds for a patient-friendly live queue view."
