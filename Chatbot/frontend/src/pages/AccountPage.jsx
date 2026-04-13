@@ -1,6 +1,10 @@
 import React, { useEffect, useState } from 'react';
 
-const QUEUECONTROL_DASHBOARD_URL = 'http://127.0.0.1:8501';
+const DASHBOARD_URLS = {
+  patient: import.meta.env.VITE_PATIENT_DASHBOARD_URL || 'http://127.0.0.1:8501?view=patient',
+  reception: import.meta.env.VITE_RECEPTION_DASHBOARD_URL || 'http://127.0.0.1:8501?view=reception',
+  manager: import.meta.env.VITE_MANAGER_DASHBOARD_URL || 'http://127.0.0.1:8501?view=manager',
+};
 
 const EMPTY_PATIENT_PROFILE = {
   fullName: '',
@@ -934,6 +938,11 @@ export default function AccountPage({
     onStaffSearchReset();
   }
 
+  function handleOpenOperationalDashboard() {
+    const targetUrl = isManagerDashboard ? DASHBOARD_URLS.manager : DASHBOARD_URLS.reception;
+    window.open(targetUrl, '_blank', 'noopener,noreferrer');
+  }
+
   const staffMatchCount = Number(staffAppointments?.total_results || 0);
   const activeTimeBucket = appliedStaffSearch?.timeBucket || staffSearch?.timeBucket || 'today';
   const staffTimeBucketLabel = formatTimeBucketLabel(activeTimeBucket);
@@ -1038,9 +1047,14 @@ export default function AccountPage({
                     <h2 className="section-title">Book A New Appointment</h2>
                     <p className="section-subtitle">Start the same chatbot intake used on the home page. Once the final wait-time result is ready, you can book directly from that result.</p>
                   </div>
-                  <button type="button" className="btn" onClick={onBeginBookingJourney} disabled={bookingLoading}>
-                    Book Appointment
-                  </button>
+                  <div className="row">
+                    <button type="button" className="btn secondary" onClick={() => window.open(DASHBOARD_URLS.patient, '_blank', 'noopener,noreferrer')}>
+                      Patient Dashboard
+                    </button>
+                    <button type="button" className="btn" onClick={onBeginBookingJourney} disabled={bookingLoading}>
+                      Book Appointment
+                    </button>
+                  </div>
                 </div>
                 {bookingNotice ? <div className={`inline-notice ${bookingNotice.toLowerCase().includes('success') ? '' : 'error'}`}>{bookingNotice}</div> : null}
               </section>
@@ -1171,6 +1185,7 @@ export default function AccountPage({
 
                   <div className="refined-search-actions refined-search-actions-card">
                     <button className="btn" type="button" onClick={handleStaffSearchSubmitClick}>Search</button>
+                    <button className="btn secondary" type="button" onClick={handleOpenOperationalDashboard}>Dashboard</button>
                     <button className="btn secondary" type="button" onClick={handleStaffSearchResetClick}>Reset</button>
                   </div>
 
@@ -1218,12 +1233,14 @@ export default function AccountPage({
               <div className="queuecontrol-access-card">
                 <div>
                   <div className="eyebrow-label">Simulation Access</div>
-                  <h3>Open QueueControl Dashboard</h3>
-                  <p className="muted">Open the live simulation dashboard in a new tab and compare different queue scenarios.</p>
+                  <h3>Open Manager Dashboard</h3>
+                  <p className="muted">Open the manager Streamlit dashboard in a new tab.</p>
                 </div>
-                <a className="queuecontrol-link" href={QUEUECONTROL_DASHBOARD_URL} target="_blank" rel="noreferrer">
-                  Open Simulation
-                </a>
+                <div className="row">
+                  <a className="queuecontrol-link" href={DASHBOARD_URLS.manager} target="_blank" rel="noreferrer">
+                    Open Manager Dashboard
+                  </a>
+                </div>
               </div>
             </section>
           ) : null}
