@@ -80,7 +80,13 @@ class RagVoiceConfigOut(BaseModel):
     voice_input_enabled: bool
     voice_output_enabled: bool
     provider: str | None = None
+    voice_output_provider: Literal["system", "openai"] = "system"
     max_duration_seconds: int
+
+
+class RagVoiceSynthesizeIn(BaseModel):
+    text: constr(min_length=1, max_length=8000)  # type: ignore
+    preferred_language: Literal["en", "fr", "es"] | None = None
 
 
 class RagVoiceTranscribeOut(BaseModel):

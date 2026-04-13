@@ -7,7 +7,7 @@ QUEUE_SIMULATION_DIR = os.path.abspath(
 if QUEUE_SIMULATION_DIR not in sys.path:
     sys.path.insert(0, QUEUE_SIMULATION_DIR)
 
-from queue_simulation import inject_styles, load_backend_or_stop, render_dashboard_view, render_sidebar, setup_dashboard_page
+from queue_simulation import render_unified_dashboard
 
 
 def main() -> None:

@@ -32,6 +32,7 @@ import AccountPage from './pages/AccountPage.jsx';
 import PrivacyPage from './pages/PrivacyPage.jsx';
 import TeamPage from './pages/TeamPage.jsx';
 import TraceabilityPage from './pages/TraceabilityPage.jsx';
+
 const EMPTY_APPOINTMENTS = {
   current: [],
   upcoming: [],

@@ -54,6 +54,85 @@ PRIORITY_COLORS = {
 }
 
 QUEUECONTROL_API_BASE_URL = os.getenv("QUEUECONTROL_API_BASE_URL", "http://localhost:8000").rstrip("/")
+QUEUECONTROL_DASHBOARD_BASE_URL = os.getenv("QUEUECONTROL_DASHBOARD_BASE_URL", "http://127.0.0.1:8501").rstrip("/")
+
+DASHBOARD_CONFIGS = {
+	"patient": {
+		"label": "Patient dashboard",
+		"title": "Patient View",
+		"description": "Track your clinic queue, wait pressure, and rush-hour outlook without intake controls.",
+		"allow_add_patient": False,
+		"allow_staffing": False,
+		"allow_retrain": False,
+		"allow_wait_time_retrain": False,
+		"allow_speed_control": True,
+		"badge": "Patient dashboard",
+		"hero_title": "Follow your clinic queue in real time",
+		"hero_description": "See the current queue, estimated wait conditions, and rush-hour pressure for the selected clinic.",
+		"show_queue_table": True,
+		"show_trends": False,
+		"enable_reception_actions": False,
+		"show_manager_metrics": False,
+	},
+	"reception": {
+		"label": "Reception dashboard",
+		"title": "Reception View",
+		"description": "Manage front-desk intake for the selected clinic while monitoring live queue pressure.",
+		"allow_add_patient": True,
+		"allow_staffing": False,
+		"allow_retrain": False,
+		"allow_wait_time_retrain": False,
+		"allow_speed_control": True,
+		"badge": "Reception dashboard",
+		"hero_title": "Front-desk intake and queue supervision",
+		"hero_description": "Add incoming patients, monitor the active waiting room, and watch clinic flow trends as the queue evolves.",
+		"show_queue_table": True,
+		"show_trends": True,
+		"enable_reception_actions": True,
+		"show_manager_metrics": False,
+	},
+	"manager": {
+		"label": "Manager dashboard",
+		"title": "Manager View",
+		"description": "Tune simulation controls, staffing, and prediction behavior while monitoring operational performance.",
+		"allow_add_patient": False,
+		"allow_staffing": True,
+		"allow_retrain": True,
+		"allow_wait_time_retrain": True,
+		"allow_speed_control": True,
+		"badge": "Manager dashboard",
+		"hero_title": "Supervise staffing and demand conditions",
+		"hero_description": "Review live clinic pressure, adjust staffing for the selected site, and track queue trends with management controls.",
+		"show_queue_table": False,
+		"show_trends": True,
+		"enable_reception_actions": False,
+		"show_manager_metrics": True,
+	},
+}
+
+
+def dashboard_url_for_view(view: str) -> str:
+	return f"{QUEUECONTROL_DASHBOARD_BASE_URL}?view={urllib.parse.quote(view)}"
+
+
+def normalize_dashboard_key(value: str | None, default: str = "patient") -> str:
+	key = str(value or "").strip().lower()
+	return key if key in DASHBOARD_CONFIGS else default
+
+
+def dashboard_hero_panel_text(
+	dashboard_key: str,
+	backend,
+	selected_clinic: str,
+) -> str:
+	if dashboard_key == "reception":
+		return f"Auto-refresh every {backend.sim_config['sim_speed']:.1f} seconds for the active reception queue."
+	if dashboard_key == "manager":
+		return (
+			f"Auto-refresh every {backend.sim_config['sim_speed']:.1f} seconds with "
+			f"{backend.sim_config['doctors_per_clinic'].get(selected_clinic, 1)} doctor(s) assigned to this clinic."
+		)
+	return f"Auto-refresh every {backend.sim_config['sim_speed']:.1f} seconds for a patient-friendly live queue view."
 
 QUEUECONTROL_API_BASE_URL = os.getenv("QUEUECONTROL_API_BASE_URL", "http://localhost:8000").rstrip("/")
 
@@ -2425,6 +2504,48 @@ def render_sidebar(
 				)
 
 	return selected_clinic
+
+
+def render_unified_dashboard(default_dashboard: str = "patient") -> None:
+	setup_dashboard_page("QueueIQ Dashboard")
+	backend = load_backend_or_stop()
+	inject_styles()
+
+	query_view = normalize_dashboard_key(st.query_params.get("view"), default_dashboard)
+	current_dashboard = normalize_dashboard_key(
+		st.session_state.get("queuecontrol_dashboard_view"),
+		query_view,
+	)
+	if current_dashboard != query_view:
+		current_dashboard = query_view
+		st.session_state["queuecontrol_dashboard_view"] = current_dashboard
+	elif "queuecontrol_dashboard_view" not in st.session_state:
+		st.session_state["queuecontrol_dashboard_view"] = current_dashboard
+	st.query_params["view"] = current_dashboard
+
+	config = DASHBOARD_CONFIGS[current_dashboard]
+	selected_clinic = render_sidebar(
+		backend,
+		title=config["title"],
+		description=config["description"],
+		allow_add_patient=config["allow_add_patient"],
+		allow_staffing=config["allow_staffing"],
+		allow_retrain=config["allow_retrain"],
+		allow_wait_time_retrain=config["allow_wait_time_retrain"],
+		allow_speed_control=config["allow_speed_control"],
+	)
+	render_dashboard_view(
+		backend,
+		selected_clinic,
+		badge=config["badge"],
+		hero_title=config["hero_title"],
+		hero_description=config["hero_description"],
+		hero_panel_text=dashboard_hero_panel_text(current_dashboard, backend, selected_clinic),
+		show_queue_table=config["show_queue_table"],
+		show_trends=config["show_trends"],
+		enable_reception_actions=config["enable_reception_actions"],
+		show_manager_metrics=config["show_manager_metrics"],
+	)
 
 
 def get_dashboard_data(

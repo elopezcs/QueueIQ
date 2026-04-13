@@ -23,6 +23,20 @@ async function apiFetch(path, options = {}) {
   return response.json();
 }
 
+async function apiFetchBlob(path, options = {}) {
+  const response = await fetch(`${API_BASE}${path}`, options);
+  if (!response.ok) {
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    throw new Error(getErrorMessage(payload, 'Request failed'));
+  }
+  return response.blob();
+}
+
 function authHeaders() {
   const token = getStoredToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -234,6 +248,19 @@ export async function transcribeVoiceAudio(blob, filename = 'recording.webm') {
     method: 'POST',
     headers: { ...authHeaders() },
     body: formData,
+  });
+}
+
+export async function synthesizeAssistantSpeech(text, preferredLanguage = "") {
+  const payload = { text };
+  const normalizedLanguage = String(preferredLanguage || "").trim().toLowerCase();
+  if (normalizedLanguage === "en" || normalizedLanguage === "fr" || normalizedLanguage === "es") {
+    payload.preferred_language = normalizedLanguage;
+  }
+  return apiFetchBlob('/rag/chat/tts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(payload),
   });
 }
 
