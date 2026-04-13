@@ -1237,9 +1237,13 @@ export default function AccountPage({
                   <p className="muted">Open the manager Streamlit dashboard in a new tab.</p>
                 </div>
                 <div className="row">
-                  <a className="queuecontrol-link" href={DASHBOARD_URLS.manager} target="_blank" rel="noreferrer">
-                    Open Manager Dashboard
-                  </a>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => window.open(DASHBOARD_URLS.manager, '_blank', 'noopener,noreferrer')}
+                  >
+                    Dashboard
+                  </button>
                 </div>
               </div>
             </section>
