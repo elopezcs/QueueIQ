@@ -6,6 +6,7 @@ export default function ChatWidget({ messages, onSend, disabled, done, progress,
   const [text, setText] = useState("");
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [voiceOutputEnabled, setVoiceOutputEnabled] = useState(false);
+  const [voiceOutputProvider, setVoiceOutputProvider] = useState("system");
   const [voiceState, setVoiceState] = useState("idle");
   const [voiceError, setVoiceError] = useState("");
   const [voiceMaxDurationSeconds, setVoiceMaxDurationSeconds] = useState(30);
@@ -31,7 +32,7 @@ export default function ChatWidget({ messages, onSend, disabled, done, progress,
     speak,
     replay,
     stop: stopSpeaking,
-  } = useAssistantTTS();
+  } = useAssistantTTS({ provider: voiceOutputProvider });
 
   useEffect(() => {
     if (!listRef.current) return;
@@ -56,12 +57,15 @@ export default function ChatWidget({ messages, onSend, disabled, done, progress,
         const enabled = Boolean(config?.voice_input_enabled);
         setVoiceEnabled(enabled);
         setVoiceOutputEnabled(Boolean(config?.voice_output_enabled));
+        const outputProvider = String(config?.voice_output_provider || "").trim().toLowerCase();
+        setVoiceOutputProvider(outputProvider === "openai" ? "openai" : "system");
         setVoiceMaxDurationSeconds(Math.max(5, Number(config?.max_duration_seconds) || 30));
       })
       .catch(() => {
         if (!active) return;
         setVoiceEnabled(false);
         setVoiceOutputEnabled(false);
+        setVoiceOutputProvider("system");
       });
     return () => {
       active = false;

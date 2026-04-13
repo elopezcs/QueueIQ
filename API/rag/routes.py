@@ -1,7 +1,7 @@
 from typing import Any
 
 from fastapi import APIRouter, File, Request, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from API.rag.schemas import (
     RagAuditRunItem,
@@ -17,9 +17,17 @@ from API.rag.schemas import (
     RagRetrieveDebugOut,
     RagSeedOut,
     RagVoiceConfigOut,
+    RagVoiceSynthesizeIn,
     RagVoiceTranscribeOut,
 )
 from API.rag.services.rag_service import get_rag_service
+from API.rag.services.tts.errors import (
+    TTSFeatureDisabledError,
+    TTSProviderFailureError,
+    TTSProviderUnavailableError,
+    TTSValidationError,
+)
+from API.rag.services.tts.service import TTSService
 from API.rag.services.transcription.errors import (
     TranscriptionFeatureDisabledError,
     TranscriptionProviderFailureError,
@@ -31,6 +39,8 @@ from Chatbot.backend.app.auth.utils import get_authenticated_patient
 from Chatbot.backend.app.core.settings import settings
 
 router = APIRouter(prefix="/rag", tags=["rag"])
+
+_VOICE_OUTPUT_PROVIDERS = {"system", "openai"}
 
 _LEGACY_CLINIC_ID_MAP = {
     'Downtown-Clinic': 'kitchener-downtown',
@@ -105,10 +115,13 @@ def rag_models():
 
 @router.get("/voice/config", response_model=RagVoiceConfigOut)
 def rag_voice_config():
+    raw_output_provider = str(settings.voice_output_provider or "").strip().lower()
+    voice_output_provider = raw_output_provider if raw_output_provider in _VOICE_OUTPUT_PROVIDERS else "system"
     return RagVoiceConfigOut(
         voice_input_enabled=bool(settings.voice_input_enabled),
         voice_output_enabled=bool(settings.voice_output_enabled),
         provider=(settings.voice_transcription_provider if settings.voice_input_enabled else None),
+        voice_output_provider=voice_output_provider,
         max_duration_seconds=max(5, int(settings.voice_max_duration_seconds)),
     )
 
@@ -258,6 +271,44 @@ async def rag_chat_transcribe(file: UploadFile | None = File(default=None)):
         provider=result.provider,
         bytes_processed=len(audio_bytes),
     )
+
+
+@router.post(
+    "/chat/tts",
+    responses={
+        400: {"description": "Bad Request"},
+        403: {"description": "Feature Disabled"},
+        409: {"description": "Provider Not Applicable"},
+        502: {"description": "Provider Failure"},
+        503: {"description": "Provider Unavailable"},
+        500: {"description": "Internal Server Error"},
+    },
+)
+async def rag_chat_tts(request: Request):
+    body = await _json_body(request)
+    if body is None:
+        return _error(400, "Request body must be a JSON object", "INVALID_JSON")
+
+    try:
+        payload = RagVoiceSynthesizeIn(**body)
+    except Exception:
+        return _error(400, "text is required and cannot be empty", "MISSING_FIELD", "text")
+
+    service = TTSService()
+    try:
+        result = service.synthesize(text=payload.text, language=payload.preferred_language)
+    except TTSFeatureDisabledError:
+        return _error(403, "Voice output feature is disabled", "FEATURE_DISABLED")
+    except TTSValidationError as exc:
+        return _error(400, str(exc) or "Invalid text payload", "INVALID_TEXT", "text")
+    except TTSProviderUnavailableError as exc:
+        return _error(409, str(exc) or "TTS provider unavailable", "TTS_UNAVAILABLE")
+    except TTSProviderFailureError as exc:
+        return _error(502, str(exc) or "Text-to-speech failed", "TTS_FAILED")
+    except Exception:
+        return _error(500, "Unexpected text-to-speech error", "INTERNAL_SERVER_ERROR")
+
+    return Response(content=result.audio_bytes, media_type=result.content_type)
 
 
 @router.post("/retrieve/debug", response_model=RagRetrieveDebugOut)
