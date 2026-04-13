@@ -4,14 +4,12 @@ import secrets
 
 from fastapi import APIRouter, Request
 
-from Chatbot.backend.app.auth.demo_accounts import DEMO_USER_BY_EMAIL
 from Chatbot.backend.app.auth.utils import (
     error_response,
     get_authenticated_patient,
     get_json_body,
     hash_otp,
     hash_password,
-    role_is_admin,
     validate_email,
     validate_optional_name,
     validate_otp_code,
@@ -35,6 +33,21 @@ from Chatbot.backend.app.storage.repo import AppointmentRepo, PatientRepo, iso_a
 
 router = APIRouter(prefix='/auth', tags=['auth'])
 logger = logging.getLogger("queueiq.endpoints.auth")
+
+_LEGACY_CLINIC_ID_MAP = {
+    'Downtown-Clinic': 'kitchener-downtown',
+    'Westside-Clinic': 'waterloo-uptown',
+}
+
+
+def _normalize_clinic_id(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    mapped = _LEGACY_CLINIC_ID_MAP.get(cleaned, cleaned)
+    return mapped
 
 
 def _medical_profile(patient: dict) -> PatientMedicalProfileOut | None:
@@ -71,7 +84,7 @@ def _profile(patient: dict) -> PatientProfileOut:
         email_verified=bool(patient['email_verified']),
         is_admin=bool(patient['is_admin']),
         role=str(patient.get('role') or 'patient'),
-        clinic_id=patient.get('clinic_id'),
+        clinic_id=_normalize_clinic_id(patient.get('clinic_id')),
         medical_profile=_medical_profile(patient),
         professional_profile=_professional_profile(patient),
     )
@@ -80,8 +93,8 @@ def _profile(patient: dict) -> PatientProfileOut:
 def _resolve_staff_clinic(value: object):
     if not isinstance(value, str) or not value.strip():
         return error_response(400, 'clinic_id is required for staff accounts', 'MISSING_FIELD', 'clinic_id')
-    clinic_id = value.strip()
-    if not get_clinic_by_id(clinic_id):
+    clinic_id = _normalize_clinic_id(value)
+    if not clinic_id or not get_clinic_by_id(clinic_id):
         return error_response(404, 'Clinic not found', 'NOT_FOUND', 'clinic_id')
     return clinic_id
 
@@ -131,6 +144,19 @@ def _optional_profile_number(value: object, field: str, *, minimum: float = 0.0,
     return round(number, 1)
 
 
+def _optional_preferred_language(value: object):
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return error_response(422, 'preferred_language must be a string', 'INVALID_FORMAT', 'preferred_language')
+    normalized = value.strip().lower()
+    if not normalized:
+        return None
+    if normalized not in {'en', 'fr', 'es'}:
+        return error_response(422, 'preferred_language must be one of: en, fr, es', 'INVALID_FORMAT', 'preferred_language')
+    return normalized
+
+
 def _parse_patient_profile_payload(body: dict[str, object]):
     field_specs = {
         'date_of_birth': ('text', 32),
@@ -160,6 +186,10 @@ def _parse_patient_profile_payload(body: dict[str, object]):
         if hasattr(result, 'status_code'):
             return result
         parsed[field] = result
+    preferred_language = _optional_preferred_language(body.get('preferred_language'))
+    if hasattr(preferred_language, 'status_code'):
+        return preferred_language
+    parsed['preferred_language'] = preferred_language
     return parsed
 
 
@@ -210,10 +240,10 @@ async def register(request: Request):
     if hasattr(password, 'status_code'):
         return password
 
-    if email in DEMO_USER_BY_EMAIL and settings.env.lower() != 'prod':
+    repo = PatientRepo()
+    if settings.env.lower() != 'prod' and repo.get_demo_user_by_email(email):
         return error_response(409, 'Use demo-login for local demo users', 'DEMO_LOGIN_ONLY', 'email')
 
-    repo = PatientRepo()
     existing = repo.get_patient_by_email(email)
     if existing and existing.get('password_hash'):
         return error_response(409, 'An account with this email already exists', 'ALREADY_EXISTS', 'email')
@@ -225,6 +255,7 @@ async def register(request: Request):
         role='patient',
         clinic_id=None,
     )
+    AppointmentRepo().ensure_initial_patient_appointment(patient['patient_id'])
     token = repo.create_auth_session(patient['patient_id'], iso_after_hours(settings.auth_session_hours))
     refreshed = repo.get_patient_by_auth_token(token)
     if not refreshed:
@@ -260,6 +291,9 @@ async def create_staff_account(request: Request):
         return clinic_id
 
     repo = PatientRepo()
+    if settings.env.lower() != 'prod' and repo.get_demo_user_by_email(email):
+        return error_response(409, 'Use demo-login for local demo users', 'DEMO_LOGIN_ONLY', 'email')
+
     existing = repo.get_patient_by_email(email)
     if existing and existing.get('password_hash'):
         return error_response(409, 'An account with this email already exists', 'ALREADY_EXISTS', 'email')
@@ -323,6 +357,9 @@ async def login(request: Request):
     if not patient or not verify_password(password, patient.get('password_hash')):
         return error_response(401, 'Email or password is incorrect', 'INVALID_CREDENTIALS', 'email')
 
+    if str(patient.get('role') or 'patient').lower() == 'patient':
+        AppointmentRepo().ensure_initial_patient_appointment(patient['patient_id'])
+
     token = repo.create_auth_session(patient['patient_id'], iso_after_hours(settings.auth_session_hours))
     refreshed = repo.get_patient_by_auth_token(token)
     if not refreshed:
@@ -344,24 +381,15 @@ async def demo_login(request: Request):
     if hasattr(email, 'status_code'):
         return email
 
-    demo_user = DEMO_USER_BY_EMAIL.get(email)
+    repo = PatientRepo()
+    demo_user = repo.get_demo_user_by_email(email)
     if not demo_user:
         return error_response(404, 'Demo user not found', 'NOT_FOUND', 'email')
 
-    repo = PatientRepo()
-    patient = repo.create_or_update_patient(
-        email,
-        demo_user['full_name'],
-        patient_id=demo_user['patient_id'],
-        is_admin=role_is_admin(demo_user['role']),
-        email_verified=True,
-        role=demo_user['role'],
-        clinic_id=demo_user['clinic_id'],
-    )
     if demo_user['role'] == 'patient':
-        AppointmentRepo().ensure_demo_appointments(patient['patient_id'])
-    repo.mark_email_verified(patient['patient_id'])
-    token = repo.create_auth_session(patient['patient_id'], iso_after_hours(settings.auth_session_hours))
+        AppointmentRepo().remove_auto_demo_upcoming_appointments(demo_user['patient_id'])
+    repo.mark_email_verified(demo_user['patient_id'])
+    token = repo.create_auth_session(demo_user['patient_id'], iso_after_hours(settings.auth_session_hours))
     refreshed = repo.get_patient_by_auth_token(token)
     if not refreshed:
         return error_response(500, 'Unable to create auth session', 'INTERNAL_SERVER_ERROR')
@@ -384,10 +412,10 @@ async def request_otp(request: Request):
     if hasattr(full_name, 'status_code'):
         return full_name
 
-    if email in DEMO_USER_BY_EMAIL and settings.env.lower() != 'prod':
+    repo = PatientRepo()
+    if settings.env.lower() != 'prod' and repo.get_demo_user_by_email(email):
         return error_response(409, 'Use demo-login for local demo users', 'DEMO_LOGIN_ONLY', 'email')
 
-    repo = PatientRepo()
     patient = repo.create_or_update_patient(email, full_name if isinstance(full_name, str) else None)
     code = f"{secrets.randbelow(1000000):06d}"
     repo.create_otp(patient['patient_id'], email, hash_otp(email, code), iso_after_minutes(settings.otp_ttl_minutes))
@@ -494,4 +522,7 @@ async def logout(request: Request):
 async def demo_users():
     if settings.env.lower() == 'prod':
         return error_response(404, 'Not found', 'NOT_FOUND')
-    return [DemoUserOut(**{k: v for k, v in user.items() if k != 'otp_code'}) for user in PatientRepo().list_demo_users()]
+    return [DemoUserOut(**user) for user in PatientRepo().list_demo_users()]
+
+
+

@@ -8,6 +8,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TextIO
 
 import requests
 
@@ -38,8 +39,8 @@ class LaunchSpec:
 @dataclass
 class LaunchResult:
     spec: LaunchSpec
-    process: subprocess.Popen[str] | None = None
-    log_handle: object | None = None
+    process: subprocess.Popen[str] | None = None    
+    log_handle: TextIO | None = None
     log_path: Path | None = None
     skipped: bool = False
     reason: str = ""
@@ -194,7 +195,7 @@ def _ensure_launcher_prereqs() -> None:
         raise RuntimeError(f"Launcher prerequisites are missing:\n- {joined}")
 
 
-def _open_log(path: Path):
+def _open_log(path: Path) -> TextIO:
     path.parent.mkdir(parents=True, exist_ok=True)
     return path.open("a", encoding="utf-8")
 
@@ -300,7 +301,7 @@ def run_workspace_launcher() -> int:
 
             result = _start_process(spec)
             launched.append(result)
-            log_display = result.log_path.relative_to(ROOT_DIR)
+            log_display = result.log_path.relative_to(ROOT_DIR) if result.log_path else Path('runtime-logs/unknown.log')
             print(f"[start] {spec.name} -> {' '.join(spec.command)}")
             print(f"        logs: {log_display}")
 
@@ -447,6 +448,8 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
 
 
 

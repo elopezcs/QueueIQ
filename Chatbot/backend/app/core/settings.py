@@ -1,5 +1,5 @@
-from pydantic_settings import BaseSettings
 from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -13,9 +13,6 @@ class Settings(BaseSettings):
         default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173"]
     )
 
-    # Storage
-    sqlite_path: str = Field(default="app.db", alias="SQLITE_PATH")
-
     # Config
     clinics_config_path: str = Field(default="app/config/clinics.yaml", alias="CLINICS_CONFIG_PATH")
 
@@ -25,6 +22,10 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
+    voice_input_enabled: bool = Field(default=False, alias="VOICE_INPUT_ENABLED")
+    voice_output_enabled: bool = Field(default=False, alias="VOICE_OUTPUT_ENABLED")
+    voice_transcription_provider: str = Field(default="openai", alias="VOICE_TRANSCRIPTION_PROVIDER")
+    voice_max_duration_seconds: int = Field(default=30, alias="VOICE_MAX_DURATION_SECONDS")
 
     # Auth
     auth_secret: str = Field(default="dev-auth-secret", alias="AUTH_SECRET")
@@ -55,10 +56,9 @@ class Settings(BaseSettings):
     rag_openai_base_url: str = Field(default="http://127.0.0.1:8005/v1", alias="RAG_OPENAI_BASE_URL")
     rag_openai_api_key: str = Field(default="local-dev-key", alias="RAG_OPENAI_API_KEY")
     enable_prompt_logging: bool = Field(default=False, alias="ENABLE_PROMPT_LOGGING")
+    prompt_log_format: str = Field(default="both", alias="PROMPT_LOG_FORMAT")
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 settings = Settings()

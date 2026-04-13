@@ -38,14 +38,15 @@ const EMPTY_APPOINTMENTS = {
   past: [],
 };
 const DEFAULT_STAFF_SEARCH = {
-  timeBucket: 'today',
+  timeBucket: 'upcoming',
   patientQuery: '',
   scheduledFrom: '',
   scheduledTo: '',
+  clinicId: '',
 };
 const EMPTY_STAFF_APPOINTMENTS = {
   clinic_id: null,
-  time_bucket: 'today',
+  time_bucket: 'upcoming',
   total_results: 0,
   results: [],
 };
@@ -59,6 +60,16 @@ const EMPTY_MANAGER_STAFF_DIRECTORY = {
   total_results: 0,
   results: [],
 };
+function defaultStaffSearchForUser(user) {
+  const role = String(user?.role || '').toLowerCase();
+  if (role === 'staff') {
+    return {
+      ...DEFAULT_STAFF_SEARCH,
+      clinicId: String(user?.clinic_id || ''),
+    };
+  }
+  return { ...DEFAULT_STAFF_SEARCH };
+}
 function defaultAccountSectionForUser(user) {
   const role = String(user?.role || '').toLowerCase();
   if (role === 'staff') {
@@ -140,6 +151,16 @@ export default function App() {
   const isStaffUser = useMemo(() => String(currentUser?.role || '').toLowerCase() === 'staff', [currentUser]);
   const isManagerUser = useMemo(() => String(currentUser?.role || '').toLowerCase() === 'manager', [currentUser]);
   const selectedClinic = useMemo(() => clinics.find((clinic) => clinic.id === clinicId) || null, [clinics, clinicId]);
+  const preferredLanguage = useMemo(
+    () => {
+      const normalized = String(currentUser?.medical_profile?.preferred_language || 'en').toLowerCase();
+      if (normalized === 'fr' || normalized === 'es') {
+        return normalized;
+      }
+      return 'en';
+    },
+    [currentUser],
+  );
   const activeDisclaimers = useMemo(
     () =>
       disclaimers.length > 0
@@ -203,8 +224,9 @@ export default function App() {
     setAuthError('');
     setAppointments(EMPTY_APPOINTMENTS);
     setAppointmentNotice('');
-    setStaffSearch(DEFAULT_STAFF_SEARCH);
-    setAppliedStaffSearch(DEFAULT_STAFF_SEARCH);
+    const nextStaffSearch = defaultStaffSearchForUser(user);
+    setStaffSearch(nextStaffSearch);
+    setAppliedStaffSearch(nextStaffSearch);
     setStaffAppointments(EMPTY_STAFF_APPOINTMENTS);
     setStaffError('');
     setManagerStaffFilters(DEFAULT_MANAGER_STAFF_FILTERS);
@@ -312,8 +334,10 @@ export default function App() {
     })();
   }, [accountSection, currentPage, currentUser]);
   useEffect(() => {
-    if (currentPage !== 'account' || !currentUser || currentUser.role !== 'staff' || accountSection !== 'dashboard') {
-      if (!currentUser || currentUser.role !== 'staff') {
+    const role = String(currentUser?.role || '').toLowerCase();
+    const hasDashboardAccess = role === 'staff' || role === 'manager';
+    if (currentPage !== 'account' || !currentUser || !hasDashboardAccess || accountSection !== 'dashboard') {
+      if (!currentUser || !hasDashboardAccess) {
         setStaffAppointments(EMPTY_STAFF_APPOINTMENTS);
         setStaffError('');
       }
@@ -402,8 +426,9 @@ export default function App() {
     setAppliedStaffSearch({ ...staffSearch });
   }
   function handleStaffSearchReset() {
-    setStaffSearch(DEFAULT_STAFF_SEARCH);
-    setAppliedStaffSearch(DEFAULT_STAFF_SEARCH);
+    const nextStaffSearch = defaultStaffSearchForUser(currentUser);
+    setStaffSearch(nextStaffSearch);
+    setAppliedStaffSearch(nextStaffSearch);
   }
   function handleManagerStaffFilterChange(field, value) {
     setManagerStaffFilters((current) => ({ ...current, [field]: value }));
@@ -463,7 +488,7 @@ export default function App() {
     setBookingNotice('');
     setIsModalOpen(true);
     try {
-      const response = await startChat(targetClinicId);
+      const response = await startChat(targetClinicId, preferredLanguage);
       setSessionId(response.session_id);
       setDisclaimers(response.disclaimers || []);
       setMessages([{ role: 'assistant', content: response.assistant_message }]);
@@ -514,7 +539,7 @@ export default function App() {
     setProgress({ turn_count: 0, max_turns: 10 });
     setBookingNotice('');
     try {
-      const response = await startChat(clinicId);
+      const response = await startChat(clinicId, preferredLanguage);
       setSessionId(response.session_id);
       setDisclaimers(response.disclaimers || []);
       setMessages([{ role: 'assistant', content: response.assistant_message }]);
@@ -730,6 +755,7 @@ export default function App() {
             loginRequired={loginRequired}
             onLoginClick={handleLoginRedirect}
             onRegisterClick={handleRegisterRedirect}
+            preferredLanguage={preferredLanguage}
           />
           {loading ? <div className="toast">Working...</div> : null}
         </>
@@ -737,3 +763,5 @@ export default function App() {
     </div>
   );
 }
+
+

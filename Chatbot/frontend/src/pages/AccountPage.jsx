@@ -4,6 +4,7 @@ const QUEUECONTROL_DASHBOARD_URL = 'http://127.0.0.1:8501';
 
 const EMPTY_PATIENT_PROFILE = {
   fullName: '',
+  preferredLanguage: 'en',
   dateOfBirth: '',
   sex: '',
   heightCm: '',
@@ -157,6 +158,12 @@ function sectionCopy(currentUser, activeSection) {
       description: 'Use your clinic search tools to review today, upcoming, and past appointments.',
     };
   }
+  if (role === 'manager' && activeSection === 'dashboard') {
+    return {
+      title: 'Manager Appointment Dashboard',
+      description: 'Search appointments by patient, email, booking token, or appointment ID across one clinic or all clinics.',
+    };
+  }
   if (role === 'manager' && activeSection === 'add-member') {
     return {
       title: 'Add Member Dashboard',
@@ -238,6 +245,10 @@ function validateStaffForm(form) {
 }
 
 function validateStaffSearch(form) {
+  const patientQuery = String(form.patientQuery || '').trim();
+  if (patientQuery.length > 120) {
+    return 'Search text must be 120 characters or less.';
+  }
   if (form.scheduledFrom && form.scheduledTo) {
     const from = new Date(form.scheduledFrom).getTime();
     const to = new Date(form.scheduledTo).getTime();
@@ -312,6 +323,7 @@ function normalizePatientProfile(currentUser) {
   const profile = currentUser?.medical_profile || {};
   return {
     fullName: currentUser?.full_name || '',
+    preferredLanguage: profile.preferred_language || 'en',
     dateOfBirth: profile.date_of_birth || '',
     sex: profile.sex || '',
     heightCm: profile.height_cm ?? '',
@@ -423,7 +435,8 @@ function AppointmentList({ clinics, appointments, emptyMessage }) {
 }
 
 function DemoAccessCards({ clinics, demoUsers, authLoading, onDemoLogin }) {
-  if (!demoUsers.length) {
+  const visibleDemoUsers = demoUsers.slice(0, 6);
+  if (!visibleDemoUsers.length) {
     return null;
   }
 
@@ -436,7 +449,8 @@ function DemoAccessCards({ clinics, demoUsers, authLoading, onDemoLogin }) {
         </div>
       </div>
       <div className="auth-entry-grid">
-        {demoUsers.map((user) => (
+        {demoUsers.length > visibleDemoUsers.length ? <div className="muted small">Showing {visibleDemoUsers.length} of {demoUsers.length} demo accounts.</div> : null}
+        {visibleDemoUsers.map((user) => (
           <article key={user.email} className="auth-card">
             <div>
               <div className="eyebrow-label">{formatRoleLabel(user.role)}</div>
@@ -465,6 +479,7 @@ function StaffResultsTable({ clinics, staffAppointments }) {
         <thead>
           <tr>
             <th>Patient</th>
+            <th>Booking Token</th>
             <th>Email</th>
             <th>Clinic</th>
             <th>Date</th>
@@ -477,6 +492,7 @@ function StaffResultsTable({ clinics, staffAppointments }) {
           {staffAppointments.results.map((appointment) => (
             <tr key={appointment.appointment_id}>
               <td>{appointment.full_name}</td>
+              <td>{appointment.booking_token || `BKG-${String(appointment.appointment_id || '').toUpperCase()}`}</td>
               <td>{appointment.email}</td>
               <td>{resolveClinicLabel(clinics, appointment.clinic_id)}</td>
               <td>{formatDateOnly(appointment.scheduled_for)}</td>
@@ -539,6 +555,7 @@ function PatientProfileSection({ clinics, currentUser, onBeginBookingJourney, on
     }
     await onUpdateProfile({
       full_name: form.fullName.trim(),
+      preferred_language: form.preferredLanguage || 'en',
       date_of_birth: form.dateOfBirth,
       sex: form.sex,
       height_cm: form.heightCm === '' ? null : Number(form.heightCm),
@@ -574,6 +591,14 @@ function PatientProfileSection({ clinics, currentUser, onBeginBookingJourney, on
           <div><div className="eyebrow-label">Health Profile</div><h3>Update personal and medical details</h3></div>
           <div className="profile-form-grid two-column">
             <div className="field"><label htmlFor="patient-full-name">Full name</label><input id="patient-full-name" type="text" value={form.fullName} onChange={(event) => updateField('fullName', event.target.value)} className={errors.fullName ? 'input-error' : ''} />{errors.fullName ? <div className="field-error-text">{errors.fullName}</div> : null}</div>
+            <div className="field">
+              <label htmlFor="patient-preferred-language">Preferred language</label>
+              <select id="patient-preferred-language" value={form.preferredLanguage} onChange={(event) => updateField('preferredLanguage', event.target.value)}>
+                <option value="en">English</option>
+                <option value="fr">French</option>
+                <option value="es">Spanish</option>
+              </select>
+            </div>
             <div className="field"><label htmlFor="patient-dob">Date of birth</label><input id="patient-dob" type="date" value={form.dateOfBirth} onChange={(event) => updateField('dateOfBirth', event.target.value)} /></div>
             <div className="field"><label htmlFor="patient-sex">Sex</label><input id="patient-sex" type="text" value={form.sex} onChange={(event) => updateField('sex', event.target.value)} /></div>
             <div className="field"><label htmlFor="patient-blood-group">Blood group</label><input id="patient-blood-group" type="text" value={form.bloodGroup} onChange={(event) => updateField('bloodGroup', event.target.value)} /></div>
@@ -848,10 +873,14 @@ export default function AccountPage({
   const [registerErrors, setRegisterErrors] = useState({});
   const [staffSearchValidationError, setStaffSearchValidationError] = useState('');
   const [showHistory, setShowHistory] = useState(false);
+  const [showDemoAccounts, setShowDemoAccounts] = useState(false);
   const heroCopy = sectionCopy(currentUser, activeSection);
 
   useEffect(() => {
     setShowHistory(false);
+    if (currentUser) {
+      setShowDemoAccounts(false);
+    }
   }, [currentUser, activeSection]);
 
   function updateLoginField(field, value) {
@@ -919,7 +948,11 @@ export default function AccountPage({
   const staffMatchCount = Number(staffAppointments?.total_results || 0);
   const activeTimeBucket = appliedStaffSearch?.timeBucket || staffSearch?.timeBucket || 'today';
   const staffTimeBucketLabel = formatTimeBucketLabel(activeTimeBucket);
-  const activeClinicLabel = resolveClinicLabel(clinics, staffAppointments?.clinic_id || currentUser?.clinic_id);
+  const isManagerDashboard = String(currentUser?.role || '').toLowerCase() === 'manager';
+  const resolvedClinicIdForLabel = staffAppointments?.clinic_id || appliedStaffSearch?.clinicId || currentUser?.clinic_id || '';
+  const activeClinicLabel = isManagerDashboard && !resolvedClinicIdForLabel
+    ? 'All clinics'
+    : resolveClinicLabel(clinics, resolvedClinicIdForLabel);
   const fromLabel = appliedStaffSearch?.scheduledFrom ? formatDateTime(appliedStaffSearch.scheduledFrom) : 'Any start';
   const toLabel = appliedStaffSearch?.scheduledTo ? formatDateTime(appliedStaffSearch.scheduledTo) : 'Any end';
   const staffLoadBand = staffMatchCount >= 18 ? 'high' : staffMatchCount >= 8 ? 'medium' : 'low';
@@ -990,7 +1023,21 @@ export default function AccountPage({
             {authError ? <div className="inline-notice error">{authError}</div> : null}
           </section>
 
-          <DemoAccessCards clinics={clinics} demoUsers={demoUsers} authLoading={authLoading} onDemoLogin={onDemoLogin} />
+          {demoUsers.length ? (
+            <section className="panel account-panel">
+              <div className="panel-heading-row">
+                <div>
+                  <h2 className="section-title">Demo Accounts</h2>
+                  <p className="section-subtitle">Click to show or hide local demo account shortcuts.</p>
+                </div>
+                <button type="button" className="btn secondary" onClick={() => setShowDemoAccounts((current) => !current)}>
+                  Demo Accounts
+                </button>
+              </div>
+            </section>
+          ) : null}
+
+          {showDemoAccounts ? <DemoAccessCards clinics={clinics} demoUsers={demoUsers} authLoading={authLoading} onDemoLogin={onDemoLogin} /> : null}
         </>
       ) : (
         <>
@@ -1063,12 +1110,12 @@ export default function AccountPage({
             />
           ) : null}
 
-          {currentUser.role === 'staff' && activeSection === 'dashboard' ? (
+          {(currentUser.role === 'staff' || currentUser.role === 'manager') && activeSection === 'dashboard' ? (
             <section className="panel account-panel">
               <div className="panel-heading-row">
                 <div>
-                  <h2 className="section-title">Staff Dashboard</h2>
-                  <p className="section-subtitle">Review today's schedule and search future or past appointments for your assigned clinic.</p>
+                  <h2 className="section-title">{isManagerDashboard ? 'Manager Appointment Dashboard' : 'Staff Dashboard'}</h2>
+                  <p className="section-subtitle">{isManagerDashboard ? 'Search appointments across all clinics or narrow to one clinic using patient name, email, booking token, or appointment ID.' : "Review today's schedule and search future or past appointments for your assigned clinic."}</p>
                 </div>
               </div>
 
@@ -1079,7 +1126,7 @@ export default function AccountPage({
                   <div className="staff-kpi-note">{staffTimeBucketLabel} window</div>
                 </article>
                 <article className="staff-kpi-card">
-                  <div className="staff-kpi-label">Assigned clinic</div>
+                  <div className="staff-kpi-label">{isManagerDashboard ? 'Clinic scope' : 'Assigned clinic'}</div>
                   <div className="staff-kpi-text">{activeClinicLabel}</div>
                   <div className="staff-kpi-note">Live search scope</div>
                 </article>
@@ -1100,15 +1147,15 @@ export default function AccountPage({
                   <div>
                     <div className="eyebrow-label">Search Filters</div>
                     <h3>Find appointments</h3>
-                    <p className="search-panel-hint">Search your clinic schedule by patient, time range, and appointment window.</p>
+                    <p className="search-panel-hint">Search by patient, email, booking token, or appointment ID with time and clinic filters.</p>
                   </div>
-                  <div className="compact-search-clinic">Assigned clinic: {resolveClinicLabel(clinics, currentUser.clinic_id)}</div>
+                  <div className="compact-search-clinic">{isManagerDashboard ? 'Clinic scope: ' + activeClinicLabel : 'Assigned clinic: ' + resolveClinicLabel(clinics, currentUser.clinic_id)}</div>
                 </div>
 
                 <div className="refined-search-layout refined-search-toolbar-layout">
                   <div className="field refined-search-field refined-search-field-query refined-search-field-card">
-                    <label htmlFor="staff-patient-query">Patient name or email</label>
-                    <input id="staff-patient-query" type="text" value={staffSearch.patientQuery} onChange={(event) => onStaffSearchChange('patientQuery', event.target.value)} placeholder="Search by patient name or email" />
+                    <label htmlFor="staff-patient-query">Patient, email, token, or appointment ID</label>
+                    <input id="staff-patient-query" type="text" value={staffSearch.patientQuery} onChange={(event) => onStaffSearchChange('patientQuery', event.target.value)} placeholder="Search by patient, email, booking token, or appointment ID" />
                   </div>
 
                   <div className="field refined-search-field refined-search-field-bucket refined-search-field-card">
@@ -1119,6 +1166,19 @@ export default function AccountPage({
                       <option value="past">Past</option>
                     </select>
                   </div>
+
+
+                  {isManagerDashboard ? (
+                    <div className="field refined-search-field refined-search-field-bucket refined-search-field-card">
+                      <label htmlFor="staff-clinic-filter">Clinic</label>
+                      <select id="staff-clinic-filter" value={staffSearch.clinicId || ''} onChange={(event) => onStaffSearchChange('clinicId', event.target.value)}>
+                        <option value="">All clinics</option>
+                        {clinics.map((clinic) => (
+                          <option key={clinic.id} value={clinic.id}>{clinic.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
 
                   <div className="refined-search-actions refined-search-actions-card">
                     <button className="btn" type="button" onClick={handleStaffSearchSubmitClick}>Search</button>
@@ -1140,7 +1200,7 @@ export default function AccountPage({
 
               <div className="auth-card staff-results-panel">
                 <div className="eyebrow-label">Results</div>
-                <h3>{resolveClinicLabel(clinics, staffAppointments.clinic_id || currentUser.clinic_id)} appointments</h3>
+                <h3>{activeClinicLabel} appointments</h3>
                 <div className="muted small">{staffAppointments.total_results || 0} matching appointments</div>
                 {staffError ? <div className="inline-notice error">{staffError}</div> : null}
                 {staffLoading ? <p className="muted">Loading appointment search...</p> : <StaffResultsTable clinics={clinics} staffAppointments={staffAppointments} />}

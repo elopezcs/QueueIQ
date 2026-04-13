@@ -22,7 +22,7 @@ DEMO_USERS = [
         "full_name": "Carol Staff",
         "email": "carol.staff@queueiq.local",
         "role": "staff",
-        "clinic_id": "Downtown-Clinic",
+        "clinic_id": "kitchener-downtown",
         "is_admin": False,
         "otp_code": "333333",
     },
@@ -31,7 +31,7 @@ DEMO_USERS = [
         "full_name": "Ethan Staff",
         "email": "ethan.staff@queueiq.local",
         "role": "staff",
-        "clinic_id": "Westside-Clinic",
+        "clinic_id": "waterloo-uptown",
         "is_admin": False,
         "otp_code": "444444",
     },
@@ -45,6 +45,3 @@ DEMO_USERS = [
         "otp_code": "999999",
     },
 ]
-
-
-DEMO_USER_BY_EMAIL = {user["email"]: user for user in DEMO_USERS}

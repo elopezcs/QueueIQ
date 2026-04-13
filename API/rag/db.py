@@ -22,7 +22,6 @@ def rag_db_enabled() -> bool:
 @contextmanager
 def get_conn() -> Iterator[psycopg2.extensions.connection]:
     url = _database_url()
-    print(url)
     if not url:
         raise RuntimeError("DATABASE_URL (or RAG_DATABASE_URL) is not configured")
     conn = psycopg2.connect(url)
@@ -119,6 +118,7 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 
 CREATE TABLE IF NOT EXISTS appointments (
   appointment_id TEXT PRIMARY KEY,
+  booking_token TEXT UNIQUE,
   patient_id TEXT NOT NULL,
   clinic_id TEXT NOT NULL,
   session_id TEXT,
@@ -213,6 +213,7 @@ CREATE TABLE IF NOT EXISTS rag.patient_chat_sessions (
   session_id TEXT PRIMARY KEY,
   patient_id TEXT NOT NULL REFERENCES rag.patients(patient_id),
   clinic_id TEXT NOT NULL,
+  preferred_language TEXT NOT NULL DEFAULT 'en',
   started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   ended_at TIMESTAMPTZ
 );
@@ -222,6 +223,14 @@ CREATE TABLE IF NOT EXISTS rag.patient_chat_messages (
   session_id TEXT NOT NULL REFERENCES rag.patient_chat_sessions(session_id),
   role TEXT NOT NULL,
   content TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS rag.clinics (
+  clinic_id TEXT PRIMARY KEY,
+  clinic_name TEXT NOT NULL,
+  city TEXT,
+  timezone TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -240,14 +249,6 @@ CREATE TABLE IF NOT EXISTS rag.chat_turns (
   started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   completed_at TIMESTAMPTZ,
   latency_ms INTEGER
-);
-
-CREATE TABLE IF NOT EXISTS rag.clinics (
-  clinic_id TEXT PRIMARY KEY,
-  clinic_name TEXT NOT NULL,
-  city TEXT,
-  timezone TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS rag.clinic_documents (
@@ -361,6 +362,8 @@ ALTER TABLE rag.retrieval_traces
   ADD COLUMN IF NOT EXISTS source_count_patient INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE rag.retrieval_traces
   ADD COLUMN IF NOT EXISTS source_count_clinic INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE rag.patient_chat_sessions
+  ADD COLUMN IF NOT EXISTS preferred_language TEXT NOT NULL DEFAULT 'en';
 
 ALTER TABLE rag.llm_runs
   ADD COLUMN IF NOT EXISTS turn_id TEXT;
@@ -382,6 +385,12 @@ ALTER TABLE rag.llm_runs
   ADD COLUMN IF NOT EXISTS input_tokens INTEGER;
 ALTER TABLE rag.llm_runs
   ADD COLUMN IF NOT EXISTS output_tokens INTEGER;
+
+ALTER TABLE appointments
+  ADD COLUMN IF NOT EXISTS booking_token TEXT;
+UPDATE appointments
+SET booking_token = 'BKG-' || UPPER(appointment_id)
+WHERE COALESCE(booking_token, '') = '';
 
 DO $$
 BEGIN
@@ -443,6 +452,7 @@ CREATE INDEX IF NOT EXISTS idx_auth_otps_email ON auth_otps(email);
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_patient_id ON auth_sessions(patient_id);
 CREATE INDEX IF NOT EXISTS idx_appointments_patient_id ON appointments(patient_id);
 CREATE INDEX IF NOT EXISTS idx_appointments_scheduled_for ON appointments(scheduled_for);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_appointments_booking_token ON appointments(booking_token);
 CREATE INDEX IF NOT EXISTS idx_notification_logs_appointment_id ON notification_logs(appointment_id);
 """
 
@@ -506,4 +516,5 @@ def to_vector_literal(values: list[float], dimensions: int | None = None) -> str
     if len(clean) < dims:
         clean.extend([0.0] * (dims - len(clean)))
     return "[" + ",".join(f"{v:.8f}" for v in clean) + "]"
+
 

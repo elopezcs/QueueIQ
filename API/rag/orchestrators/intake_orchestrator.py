@@ -6,18 +6,113 @@ from datetime import datetime, timezone
 from typing import Any
 
 from API.rag.model_adapters.registry import active_adapter, active_model
-from API.rag.prompt_logging import log_constructed_prompt
+from API.rag.prompt_logging import log_constructed_prompt, log_llm_inference
 from API.rag.prompts.intake_templates import (
-    DEFAULT_DISCLAIMERS,
+    disclaimers_for_language,
     final_classification_prompts,
+    normalize_language,
     next_turn_prompts,
 )
 from Chatbot.backend.app.core.settings import settings
 
-DEFAULT_SAFE_ESCALATION = (
-    "If this may be severe or an emergency, seek urgent in-person care or call local emergency services. "
-    "If you can, ask someone nearby for help."
-)
+LOCALIZED_MESSAGES: dict[str, dict[str, str]] = {
+    "en": {
+        "safe_escalation": (
+            "If this may be severe or an emergency, seek urgent in-person care or call local emergency services. "
+            "If you can, ask someone nearby for help."
+        ),
+        "welcome_intro": "Welcome. I can help collect intake details for {clinic_name}.",
+        "welcome_scope": "This chat is for pre-intake support before your visit. I will ask a few short questions for operational queue planning.",
+        "welcome_question": "What brings you in today, in one or two sentences?",
+        "finish_ready": "Thanks. I have enough information to generate operational results. Please tap 'Finish' to see them.",
+        "finish_tap": "Thanks. Tap 'Finish' to see operational results.",
+        "fallback_detail_question": "Could you share one more detail that would help queue planning today?",
+        "llm_safety": "If this may be severe or an emergency, seek urgent in-person care or call local emergency services.",
+        "high_risk_explanation": "High-risk indicators detected. Seek urgent in-person care.",
+        "placeholder_explanation": "Operational summary based on your answers.",
+    },
+    "fr": {
+        "safe_escalation": (
+            "Si cela peut etre grave ou une urgence, consultez rapidement en personne ou appelez les services d'urgence locaux. "
+            "Si possible, demandez de l'aide a une personne proche."
+        ),
+        "welcome_intro": "Bienvenue. Je peux vous aider a recueillir les details de pre-triage pour {clinic_name}.",
+        "welcome_scope": "Ce clavardage sert au pre-triage avant votre visite. Je vais poser quelques courtes questions pour la planification operationnelle de la file.",
+        "welcome_question": "Qu'est-ce qui vous amene aujourd'hui, en une ou deux phrases?",
+        "finish_ready": "Merci. J'ai assez d'information pour generer les resultats operationnels. Veuillez appuyer sur 'Terminer' pour les voir.",
+        "finish_tap": "Merci. Appuyez sur 'Terminer' pour voir les resultats operationnels.",
+        "fallback_detail_question": "Pouvez-vous partager un detail de plus utile a la planification de la file aujourd'hui?",
+        "llm_safety": "Si cela peut etre grave ou une urgence, consultez rapidement en personne ou appelez les services d'urgence locaux.",
+        "high_risk_explanation": "Des signes de risque eleve ont ete detectes. Consultez rapidement en personne.",
+        "placeholder_explanation": "Resume operationnel base sur vos reponses.",
+    },
+    "es": {
+        "safe_escalation": (
+            "Si esto puede ser grave o una emergencia, busque atencion presencial urgente o llame a los servicios de emergencia locales. "
+            "Si puede, pida ayuda a alguien cercano."
+        ),
+        "welcome_intro": "Bienvenido. Puedo ayudarle a recopilar los detalles de pretriaje para {clinic_name}.",
+        "welcome_scope": "Este chat sirve para el pretriaje antes de su visita. Haré algunas preguntas cortas para la planificacion operativa de la fila.",
+        "welcome_question": "Qué le trae hoy, en una o dos frases?",
+        "finish_ready": "Gracias. Tengo informacion suficiente para generar los resultados operativos. Toque 'Finalizar' para verlos.",
+        "finish_tap": "Gracias. Toque 'Finalizar' para ver los resultados operativos.",
+        "fallback_detail_question": "Podria compartir un detalle mas que ayude a la planificacion de la fila hoy?",
+        "llm_safety": "Si esto puede ser grave o una emergencia, busque atencion presencial urgente o llame a los servicios de emergencia locales.",
+        "high_risk_explanation": "Se detectaron indicadores de alto riesgo. Busque atencion presencial urgente.",
+        "placeholder_explanation": "Resumen operativo basado en sus respuestas.",
+    },
+}
+
+DELTA_REWRITE_BY_INTENT: dict[str, dict[str, str]] = {
+    "en": {
+        "allergy_history": "Any new allergies or reactions since your last update?",
+        "medication_history": "Any new or changed medications since your last update?",
+        "chronic_history": "Any new chronic conditions or diagnosis changes since your last update?",
+    },
+    "fr": {
+        "allergy_history": "Avez-vous de nouvelles allergies ou reactions depuis votre derniere mise a jour?",
+        "medication_history": "Avez-vous de nouveaux medicaments ou des changements depuis votre derniere mise a jour?",
+        "chronic_history": "Y a-t-il de nouvelles conditions chroniques ou des changements de diagnostic depuis votre derniere mise a jour?",
+    },
+    "es": {
+        "allergy_history": "Tiene alergias nuevas o reacciones desde su ultima actualizacion?",
+        "medication_history": "Tiene medicamentos nuevos o cambios desde su ultima actualizacion?",
+        "chronic_history": "Hay condiciones cronicas nuevas o cambios de diagnostico desde su ultima actualizacion?",
+    },
+}
+
+SCRIPTED_INTAKE_QUESTIONS: dict[str, list[str]] = {
+    "en": [
+        "How long have these symptoms or concerns been going on?",
+        "Is there an injury involved, such as a fall or cut?",
+        "Any timing constraints today, like needing to leave by a certain hour?",
+        "Are your symptoms getting better, worse, or staying about the same?",
+    ],
+    "fr": [
+        "Depuis combien de temps ces symptomes ou preoccupations durent-ils?",
+        "Y a-t-il une blessure en cause, comme une chute ou une coupure?",
+        "Avez-vous des contraintes d'horaire aujourd'hui, par exemple devoir partir a une certaine heure?",
+        "Vos symptomes s'ameliorent-ils, empirent-ils, ou restent-ils semblables?",
+    ],
+    "es": [
+        "Cuanto tiempo llevan estos sintomas o preocupaciones?",
+        "Hay una lesion involucrada, como una caida o un corte?",
+        "Tiene restricciones de horario hoy, por ejemplo tener que irse a cierta hora?",
+        "Sus sintomas estan mejorando, empeorando o siguen igual?",
+    ],
+}
+
+
+def _msg(language: str, key: str) -> str:
+    return LOCALIZED_MESSAGES[normalize_language(language)][key]
+
+
+def _delta_rewrite(language: str, intent: str) -> str | None:
+    return DELTA_REWRITE_BY_INTENT.get(normalize_language(language), {}).get(intent)
+
+
+def _scripted_questions(language: str) -> list[str]:
+    return SCRIPTED_INTAKE_QUESTIONS[normalize_language(language)]
 
 
 def format_clinic_context(clinic: dict[str, Any]) -> str:
@@ -51,6 +146,133 @@ def _normalize_message_text(content: str, *, max_length: int = 120) -> str:
     return normalized[: max(0, max_length - 3)].rstrip() + "..."
 
 
+def _normalize_for_match(content: str) -> str:
+    lowered = re.sub(r"\s+", " ", (content or "").strip()).lower()
+    return re.sub(r"[^a-z0-9 ?]", "", lowered)
+
+
+def _classify_question_intent(question: str) -> str | None:
+    q = _normalize_for_match(question)
+    if not q:
+        return None
+    if "allerg" in q and any(
+        phrase in q
+        for phrase in (
+            "known allerg",
+            "any allerg",
+            "do you have allerg",
+            "what allerg",
+            "allergy history",
+        )
+    ):
+        return "allergy_history"
+    if any(term in q for term in ("medication", "medications", "meds", "current meds")) and any(
+        phrase in q
+        for phrase in (
+            "do you take",
+            "are you taking",
+            "what meds",
+            "what medications",
+            "current medication",
+            "known medication",
+            "medication history",
+        )
+    ):
+        return "medication_history"
+    if any(term in q for term in ("chronic", "medical condition", "diagnosed")) and any(
+        phrase in q
+        for phrase in (
+            "known",
+            "history",
+            "do you have",
+            "any",
+            "list",
+        )
+    ):
+        return "chronic_history"
+    if "how long" in q or "since when" in q:
+        return "duration"
+    if "scale of 1 to 10" in q or "rate" in q:
+        return "severity"
+    return None
+
+
+def _known_history_intents(patient_context: str | None) -> set[str]:
+    if not patient_context:
+        return set()
+    normalized = patient_context.lower()
+    known: set[str] = set()
+    if "[allergy]" in normalized or "known_allergies_present=true" in normalized:
+        known.add("allergy_history")
+    if "[medication]" in normalized or "known_medications_present=true" in normalized:
+        known.add("medication_history")
+    if "known_chronic_conditions_present=true" in normalized or "chronic condition" in normalized:
+        known.add("chronic_history")
+    return known
+
+
+def _assistant_already_asked_question(transcript: list[dict[str, Any]], question: str) -> bool:
+    target = _normalize_for_match(question)
+    if not target:
+        return False
+    for message in transcript:
+        if str(message.get("role") or "").lower() != "assistant":
+            continue
+        asked = _normalize_for_match(str(message.get("content") or ""))
+        if asked and asked == target:
+            return True
+    return False
+
+
+def _intent_already_asked_and_answered(transcript: list[dict[str, Any]], intent: str) -> bool:
+    for idx, message in enumerate(transcript):
+        if str(message.get("role") or "").lower() != "assistant":
+            continue
+        asked_intent = _classify_question_intent(str(message.get("content") or ""))
+        if asked_intent != intent:
+            continue
+        for later in transcript[idx + 1 :]:
+            if str(later.get("role") or "").lower() == "user":
+                return True
+    return False
+
+
+def _first_non_duplicate_scripted_question(transcript: list[dict[str, Any]], language: str) -> str:
+    for candidate in _scripted_questions(language):
+        if not _assistant_already_asked_question(transcript, candidate):
+            return candidate
+    return _msg(language, "fallback_detail_question")
+
+
+def _apply_repetition_guard(
+    *,
+    next_question: str,
+    transcript: list[dict[str, Any]],
+    patient_context: str | None,
+    language: str,
+) -> str:
+    question = (next_question or "").strip()
+    if not question:
+        return _first_non_duplicate_scripted_question(transcript, language)
+
+    intent = _classify_question_intent(question)
+    known_history = _known_history_intents(patient_context)
+
+    if intent and intent in known_history:
+        rewritten = _delta_rewrite(language, intent)
+        if rewritten and not _assistant_already_asked_question(transcript, rewritten):
+            return rewritten
+        return _first_non_duplicate_scripted_question(transcript, language)
+
+    if intent and _intent_already_asked_and_answered(transcript, intent):
+        return _first_non_duplicate_scripted_question(transcript, language)
+
+    if _assistant_already_asked_question(transcript, question):
+        return _first_non_duplicate_scripted_question(transcript, language)
+
+    return question
+
+
 def _extract_user_highlights(transcript: list[dict[str, Any]], *, max_items: int = 3) -> list[str]:
     highlights: list[str] = []
     seen: set[str] = set()
@@ -79,6 +301,10 @@ def _is_placeholder_explanation(explanation: str) -> bool:
         "operational summary based on your answers.",
         "operational summary based on your answers",
         "operational estimate based on your intake answers and any saved profile details available in stub mode.",
+        "resume operationnel base sur vos reponses.",
+        "resume operationnel base sur vos reponses",
+        "resumen operativo basado en sus respuestas.",
+        "resumen operativo basado en sus respuestas",
     }
     if normalized in placeholders:
         return True
@@ -92,10 +318,34 @@ def _build_explanation_from_transcript(
     transcript: list[dict[str, Any]],
     visit_category: str,
     urgency_band: str,
+    language: str = "en",
 ) -> str:
+    normalized_language = normalize_language(language)
     highlights = _extract_user_highlights(transcript)
     visit = (visit_category or "general").strip() or "general"
     urgency = (urgency_band or "medium").strip() or "medium"
+    if normalized_language == "fr":
+        if highlights:
+            details = "; ".join(f'"{item}"' for item in highlights)
+            return (
+                f"Selon les details de votre pre-triage ({details}), nous avons prepare un resume de visite {visit} "
+                f"avec une urgence operationnelle {urgency} pour la planification de la file."
+            )
+        return (
+            f"Nous avons prepare un resume de visite {visit} avec une urgence operationnelle {urgency} "
+            "pour la planification de la file selon votre pre-triage."
+        )
+    if normalized_language == "es":
+        if highlights:
+            details = "; ".join(f'"{item}"' for item in highlights)
+            return (
+                f"Con base en los detalles de su pretriaje ({details}), preparamos un resumen de visita {visit} "
+                f"con urgencia operativa {urgency} para la planificacion de la fila."
+            )
+        return (
+            f"Preparamos un resumen de visita {visit} con urgencia operativa {urgency} "
+            "para la planificacion de la fila segun su pretriaje."
+        )
     if highlights:
         details = "; ".join(f'"{item}"' for item in highlights)
         return (
@@ -128,7 +378,8 @@ def _extract_first_json_object(text: str) -> dict[str, Any]:
         return {}
 
 
-def _safety_check(transcript_text: str) -> dict[str, Any]:
+def _safety_check(transcript_text: str, *, language: str = "en") -> dict[str, Any]:
+    normalized_language = normalize_language(language)
     lowered = transcript_text.lower()
     keywords = [
         "chest pain",
@@ -147,8 +398,8 @@ def _safety_check(transcript_text: str) -> dict[str, Any]:
     hit = any(k in lowered for k in keywords)
     return {
         "is_high_risk": hit,
-        "safe_message": DEFAULT_SAFE_ESCALATION if hit else "",
-        "disclaimers": DEFAULT_DISCLAIMERS,
+        "safe_message": _msg(normalized_language, "safe_escalation") if hit else "",
+        "disclaimers": disclaimers_for_language(normalized_language),
     }
 
 
@@ -184,21 +435,22 @@ class RagIntakeOrchestrator:
     def __init__(self) -> None:
         self.max_turns = settings.max_turns
 
-    def first_message(self, clinic: dict[str, Any], patient_context: str | None = None) -> tuple[str, list[str]]:
-        personalized_note = (
-            "\n\nI can also use the profile and visit details already saved on your account to avoid repeating background questions."
-            if patient_context
-            else ""
-        )
+    def first_message(
+        self,
+        clinic: dict[str, Any],
+        patient_context: str | None = None,
+        language: str = "en",
+    ) -> tuple[str, list[str]]:
+        _ = patient_context
+        normalized_language = normalize_language(language)
         msg = (
-            f"Welcome. I can help collect intake details for {clinic.get('name')}."
-            "\n\nThis chat is for pre-intake support before your visit. "
-            "I will ask a few short questions for operational queue planning. "
-            "This is not a medical diagnosis."
-            f"{personalized_note}"
-            "\n\nWhat brings you in today, in one or two sentences?"
+            _msg(normalized_language, "welcome_intro").format(clinic_name=clinic.get("name"))
+            + "\n\n"
+            + _msg(normalized_language, "welcome_scope")
+            + "\n\n"
+            + _msg(normalized_language, "welcome_question")
         )
-        return msg, DEFAULT_DISCLAIMERS
+        return msg, disclaimers_for_language(normalized_language)
 
     def _generate_structured(
         self,
@@ -237,18 +489,85 @@ class RagIntakeOrchestrator:
             endpoint=endpoint,
             retrieval_mode=retrieval_mode,
         )
-        data = adapter.generate_structured(
-            model_name=model.model_name,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-        )
+        try:
+            data = adapter.generate_structured(
+                model_name=model.model_name,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+            )
+        except Exception:
+            log_llm_inference(
+                session_id=session_id or "unknown_session",
+                user_query=user_query or "",
+                clinic_id=clinic_id,
+                patient_id=patient_id,
+                model_name=model.model_name,
+                provider=provider or None,
+                endpoint=endpoint,
+                retrieval_mode=retrieval_mode,
+                inference_source="adapter_error",
+            )
+            raise
+
         if isinstance(data, dict):
             if any(key in data for key in ("decision", "urgency_band", "visit_category", "next_question")):
+                log_llm_inference(
+                    session_id=session_id or "unknown_session",
+                    user_query=user_query or "",
+                    clinic_id=clinic_id,
+                    patient_id=patient_id,
+                    model_name=model.model_name,
+                    provider=provider or None,
+                    endpoint=endpoint,
+                    retrieval_mode=retrieval_mode,
+                    inference_json=data,
+                )
                 return data
             nested = _extract_first_json_object(str(data.get("assistant_message") or ""))
             if nested:
+                log_llm_inference(
+                    session_id=session_id or "unknown_session",
+                    user_query=user_query or "",
+                    clinic_id=clinic_id,
+                    patient_id=patient_id,
+                    model_name=model.model_name,
+                    provider=provider or None,
+                    endpoint=endpoint,
+                    retrieval_mode=retrieval_mode,
+                    inference_json=nested,
+                    inference_source="assistant_message_json",
+                )
                 return nested
         return {}
+
+    def _log_fallback_inference(
+        self,
+        *,
+        session_id: str | None,
+        user_query: str,
+        clinic_id: str | None,
+        patient_id: str | None,
+        endpoint: str | None,
+        retrieval_mode: str | None,
+        reason: str,
+    ) -> None:
+        provider = str(settings.rag_model_provider or "").strip().lower() or None
+        model_name: str | None = None
+        try:
+            model_name = active_model().model_name
+        except Exception:
+            model_name = None
+        log_llm_inference(
+            session_id=session_id or "unknown_session",
+            user_query=user_query,
+            clinic_id=clinic_id,
+            patient_id=patient_id,
+            model_name=model_name,
+            provider=provider,
+            endpoint=endpoint,
+            retrieval_mode=retrieval_mode,
+            inference_source=reason,
+        )
 
     def next_turn(
         self,
@@ -256,22 +575,47 @@ class RagIntakeOrchestrator:
         clinic: dict[str, Any],
         transcript: list[dict[str, Any]],
         patient_context: str | None = None,
+        language: str = "en",
         session_id: str | None = None,
         clinic_id: str | None = None,
         patient_id: str | None = None,
         endpoint: str | None = None,
         retrieval_mode: str | None = None,
     ) -> tuple[str, bool, dict[str, int]]:
+        normalized_language = normalize_language(language)
         turn_count = sum(1 for message in transcript if str(message.get("role") or "").lower() == "user")
         transcript_text = transcript_to_text(transcript)
+        latest_user_query = ""
+        for message in reversed(transcript):
+            if str(message.get("role") or "").lower() == "user":
+                latest_user_query = str(message.get("content") or "")
+                break
 
-        safety = _safety_check(transcript_text)
+        safety = _safety_check(transcript_text, language=normalized_language)
         if safety["is_high_risk"]:
+            self._log_fallback_inference(
+                session_id=session_id,
+                user_query=latest_user_query,
+                clinic_id=clinic_id or str(clinic.get("id") or ""),
+                patient_id=patient_id,
+                endpoint=endpoint or "/rag/chat/turn",
+                retrieval_mode=retrieval_mode,
+                reason="safety_short_circuit",
+            )
             return safety["safe_message"], True, {"turn_count": turn_count, "max_turns": self.max_turns}
 
         if turn_count >= self.max_turns:
+            self._log_fallback_inference(
+                session_id=session_id,
+                user_query=latest_user_query,
+                clinic_id=clinic_id or str(clinic.get("id") or ""),
+                patient_id=patient_id,
+                endpoint=endpoint or "/rag/chat/turn",
+                retrieval_mode=retrieval_mode,
+                reason="max_turns_reached",
+            )
             return (
-                "Thanks. I have enough information to generate operational results. Please tap 'Finish' to see them.",
+                _msg(normalized_language, "finish_ready"),
                 True,
                 {"turn_count": turn_count, "max_turns": self.max_turns},
             )
@@ -283,14 +627,10 @@ class RagIntakeOrchestrator:
             turn_count=turn_count,
             max_turns=self.max_turns,
             patient_context=patient_context,
+            language=normalized_language,
         )
         data: dict[str, Any] = {}
         try:
-            latest_user_query = ""
-            for message in reversed(transcript):
-                if str(message.get("role") or "").lower() == "user":
-                    latest_user_query = str(message.get("content") or "")
-                    break
             data = self._generate_structured(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
@@ -305,16 +645,21 @@ class RagIntakeOrchestrator:
             data = {}
 
         if not data:
-            scripted = [
-                "How long have these symptoms or concerns been going on?",
-                "Is there an injury involved, such as a fall or cut?",
-                "Any timing constraints today, like needing to leave by a certain hour?",
-            ]
+            self._log_fallback_inference(
+                session_id=session_id,
+                user_query=latest_user_query,
+                clinic_id=clinic_id or str(clinic.get("id") or ""),
+                patient_id=patient_id,
+                endpoint=endpoint or "/rag/chat/turn",
+                retrieval_mode=retrieval_mode,
+                reason="fallback_scripted",
+            )
+            scripted = _scripted_questions(normalized_language)
             idx = min(turn_count, len(scripted) - 1)
             next_q = scripted[idx]
             done = turn_count >= len(scripted)
             if done:
-                return "Thanks. Tap 'Finish' to see operational results.", True, {
+                return _msg(normalized_language, "finish_tap"), True, {
                     "turn_count": turn_count,
                     "max_turns": self.max_turns,
                 }
@@ -323,20 +668,23 @@ class RagIntakeOrchestrator:
         decision = str(data.get("decision", "ASK")).upper()
         if decision == "SAFETY":
             return (
-                "If this may be severe or an emergency, seek urgent in-person care or call local emergency services.",
+                _msg(normalized_language, "llm_safety"),
                 True,
                 {"turn_count": turn_count, "max_turns": self.max_turns},
             )
         if decision == "STOP":
             return (
-                "Thanks. I have enough information to generate operational results. Please tap 'Finish' to see them.",
+                _msg(normalized_language, "finish_ready"),
                 True,
                 {"turn_count": turn_count, "max_turns": self.max_turns},
             )
 
-        next_question = str(data.get("next_question") or "").strip()
-        if not next_question:
-            next_question = "Could you share a bit more detail about what you need help with today?"
+        next_question = _apply_repetition_guard(
+            next_question=str(data.get("next_question") or "").strip(),
+            transcript=transcript,
+            patient_context=patient_context,
+            language=normalized_language,
+        )
         return next_question, False, {"turn_count": turn_count, "max_turns": self.max_turns}
 
     def finalize(
@@ -345,6 +693,7 @@ class RagIntakeOrchestrator:
         clinic: dict[str, Any],
         transcript: list[dict[str, Any]],
         patient_context: str | None = None,
+        language: str = "en",
         session_id: str | None = None,
         clinic_id: str | None = None,
         patient_id: str | None = None,
@@ -352,19 +701,36 @@ class RagIntakeOrchestrator:
         retrieval_mode: str | None = None,
         user_query: str | None = None,
     ) -> dict[str, Any]:
+        normalized_language = normalize_language(language)
         transcript_text = transcript_to_text(transcript)
         clinic_context = format_clinic_context(clinic)
+        latest_user_query = user_query or ""
+        if not latest_user_query:
+            for message in reversed(transcript):
+                if str(message.get("role") or "").lower() == "user":
+                    latest_user_query = str(message.get("content") or "")
+                    break
 
-        safety = _safety_check(transcript_text)
+        safety = _safety_check(transcript_text, language=normalized_language)
         if safety["is_high_risk"]:
+            self._log_fallback_inference(
+                session_id=session_id,
+                user_query=latest_user_query,
+                clinic_id=clinic_id or str(clinic.get("id") or ""),
+                patient_id=patient_id,
+                endpoint=endpoint or "/rag/chat/end",
+                retrieval_mode=retrieval_mode,
+                reason="safety_short_circuit",
+            )
             urgency_band = "high"
             visit_category = "urgent"
-            explanation = "High-risk indicators detected. Seek urgent in-person care."
+            explanation = _msg(normalized_language, "high_risk_explanation")
         else:
             system_prompt, user_prompt = final_classification_prompts(
                 clinic_context=clinic_context,
                 transcript=transcript_text,
                 patient_context=patient_context,
+                language=normalized_language,
             )
             try:
                 data = self._generate_structured(
@@ -379,16 +745,27 @@ class RagIntakeOrchestrator:
                 )
             except Exception:
                 data = {}
+            if not data:
+                self._log_fallback_inference(
+                    session_id=session_id,
+                    user_query=latest_user_query,
+                    clinic_id=clinic_id or str(clinic.get("id") or ""),
+                    patient_id=patient_id,
+                    endpoint=endpoint or "/rag/chat/end",
+                    retrieval_mode=retrieval_mode,
+                    reason="fallback_finalize_default",
+                )
             urgency_band = str(data.get("urgency_band", "medium")).lower()
             if urgency_band not in {"low", "medium", "high"}:
                 urgency_band = "medium"
             visit_category = str(data.get("visit_category", "general")).strip() or "general"
-            explanation = str(data.get("explanation", "")).strip() or "Operational summary based on your answers."
+            explanation = str(data.get("explanation", "")).strip() or _msg(normalized_language, "placeholder_explanation")
             if _is_placeholder_explanation(explanation):
                 explanation = _build_explanation_from_transcript(
                     transcript=transcript,
                     visit_category=visit_category,
                     urgency_band=urgency_band,
+                    language=normalized_language,
                 )
 
         capacity = clinic.get("mock_capacity", {})
@@ -410,7 +787,7 @@ class RagIntakeOrchestrator:
             "wait_p50_minutes": p50,
             "wait_p90_minutes": p90,
             "explanation": explanation,
-            "disclaimers": DEFAULT_DISCLAIMERS,
+            "disclaimers": disclaimers_for_language(normalized_language),
             "run_id": f"run_{secrets.token_hex(12)}",
             "config_snapshot_hash": clinic_snapshot_hash(clinic),
         }

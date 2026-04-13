@@ -6,6 +6,7 @@ from API.main import create_app
 class _FakeService:
     def __init__(self):
         self.orchestrator = self
+        self.last_preferred_language = None
 
     def health(self):
         return {"status": "ok", "database_ready": True, "pgvector_enabled": False}
@@ -24,7 +25,8 @@ class _FakeService:
     def seed(self):
         return {"ok": True, "patients_seeded": 3, "clinics_seeded": 3, "notes": ["seeded"]}
 
-    def start_session(self, *, patient_id: str, clinic_id: str, patient_profile=None):
+    def start_session(self, *, patient_id: str, clinic_id: str, patient_profile=None, preferred_language: str | None = None):
+        self.last_preferred_language = preferred_language
         return {
             "session_id": "sess_test",
             "assistant_message": "welcome",
@@ -180,12 +182,18 @@ def _auth_header(client: TestClient, email: str) -> dict[str, str]:
 
 
 def test_rag_chat_start_turn_end(monkeypatch):
-    monkeypatch.setattr("API.rag.routes.get_rag_service", lambda: _FakeService())
+    fake_service = _FakeService()
+    monkeypatch.setattr("API.rag.routes.get_rag_service", lambda: fake_service)
     client = TestClient(create_app())
     headers = _auth_header(client, "alice.patient@queueiq.local")
 
-    start = client.post("/rag/chat/start", json={"clinic_id": "kitchener-downtown"}, headers=headers)
+    start = client.post(
+        "/rag/chat/start",
+        json={"clinic_id": "kitchener-downtown", "preferred_language": "es"},
+        headers=headers,
+    )
     assert start.status_code == 200
+    assert fake_service.last_preferred_language == "es"
     session_id = start.json()["session_id"]
 
     turn = client.post("/rag/chat/turn", json={"session_id": session_id, "user_message": "What are my clinic options?"}, headers=headers)

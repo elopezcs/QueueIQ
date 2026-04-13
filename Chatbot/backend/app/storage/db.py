@@ -1,6 +1,4 @@
 import re
-import sqlite3
-from pathlib import Path
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -11,22 +9,18 @@ except ModuleNotFoundError:
     init_rag_db = None
 from app.core.settings import settings
 
-_DB_PATH = None
-_BACKEND_DIR = Path(__file__).resolve().parents[2]
-
-
-def db_path() -> Path:
-    global _DB_PATH
-    if _DB_PATH is None:
-        raw_path = Path(settings.sqlite_path)
-        if not raw_path.is_absolute():
-            raw_path = _BACKEND_DIR / raw_path
-        _DB_PATH = raw_path.resolve()
-    return _DB_PATH
-
 
 def _pg_database_url() -> str | None:
     return settings.rag_database_url or settings.database_url
+
+
+def _required_database_url() -> str:
+    url = _pg_database_url()
+    if url:
+        return url
+    raise RuntimeError(
+        'DATABASE_URL (or RAG_DATABASE_URL) is not configured. File-based SQLite fallback has been removed.'
+    )
 
 
 class _CompatCursor:
@@ -47,7 +41,7 @@ class _CompatPgConnection:
 
     def _rewrite_upsert(self, sql: str) -> str:
         lowered = sql.lower()
-        if "insert or replace into outputs" in lowered:
+        if 'insert or replace into outputs' in lowered:
             return """
                 INSERT INTO outputs(
                   session_id, run_id, urgency_band, visit_category,
@@ -65,13 +59,14 @@ class _CompatPgConnection:
                     config_snapshot_hash=EXCLUDED.config_snapshot_hash,
                     created_at=EXCLUDED.created_at
             """
-        if "insert or replace into appointments" in lowered:
+        if 'insert or replace into appointments' in lowered:
             return """
                 INSERT INTO appointments(
-                    appointment_id, patient_id, clinic_id, session_id, scheduled_for, status, description, created_at, updated_at
-                ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    appointment_id, booking_token, patient_id, clinic_id, session_id, scheduled_for, status, description, created_at, updated_at
+                ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (appointment_id) DO UPDATE
-                SET patient_id=EXCLUDED.patient_id,
+                SET booking_token=EXCLUDED.booking_token,
+                    patient_id=EXCLUDED.patient_id,
                     clinic_id=EXCLUDED.clinic_id,
                     session_id=EXCLUDED.session_id,
                     scheduled_for=EXCLUDED.scheduled_for,
@@ -80,7 +75,7 @@ class _CompatPgConnection:
                     created_at=EXCLUDED.created_at,
                     updated_at=EXCLUDED.updated_at
             """
-        if "insert or replace into sessions" in lowered:
+        if 'insert or replace into sessions' in lowered:
             return """
                 INSERT INTO sessions(session_id, clinic_id, patient_id, created_at, done)
                 VALUES(%s,%s,%s,%s,1)
@@ -95,8 +90,8 @@ class _CompatPgConnection:
     def _rewrite_sql(self, sql: str) -> str:
         rewritten = self._rewrite_upsert(sql)
         rewritten = rewritten.replace('""', "''")
-        rewritten = rewritten.replace("?", "%s")
-        rewritten = re.sub(r"\bINTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT\b", "BIGSERIAL PRIMARY KEY", rewritten, flags=re.IGNORECASE)
+        rewritten = rewritten.replace('?', '%s')
+        rewritten = re.sub(r'\bINTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT\b', 'BIGSERIAL PRIMARY KEY', rewritten, flags=re.IGNORECASE)
         return rewritten
 
     def execute(self, sql: str, params=None):
@@ -111,67 +106,14 @@ class _CompatPgConnection:
         self._conn.close()
 
 
-def get_conn() -> sqlite3.Connection | _CompatPgConnection:
-    pg_url = _pg_database_url()
-    if pg_url:
-        conn = psycopg2.connect(pg_url)
-        return _CompatPgConnection(conn)
-
-    conn = sqlite3.connect(str(db_path()))
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def _ensure_column(conn: sqlite3.Connection | _CompatPgConnection, table_name: str, column_name: str, column_sql: str) -> None:
-    if not isinstance(conn, sqlite3.Connection):
-        return
-    columns = {row['name'] for row in conn.execute(f'PRAGMA table_info({table_name})').fetchall()}
-    if column_name not in columns:
-        conn.execute(f'ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}')
+def get_conn() -> _CompatPgConnection:
+    conn = psycopg2.connect(_required_database_url())
+    return _CompatPgConnection(conn)
 
 
 def init_db() -> None:
-    from app.storage.repo import seed_demo_data
-    from app.storage.schema import schema_sql
+    _required_database_url()
+    if not callable(init_rag_db):
+        raise RuntimeError('RAG DB initializer is unavailable in this runtime')
 
-    pg_url = _pg_database_url()
-    if pg_url:
-        if callable(init_rag_db):
-            init_rag_db()
-        if settings.env.lower() != 'prod':
-            seed_demo_data()
-        return
-
-    path = db_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    conn = get_conn()
-    try:
-        conn.executescript(schema_sql())
-        _ensure_column(conn, 'sessions', 'patient_id', 'TEXT')
-        _ensure_column(conn, 'patients', 'is_admin', 'INTEGER NOT NULL DEFAULT 0')
-        _ensure_column(conn, 'patients', 'role', "TEXT NOT NULL DEFAULT 'patient'")
-        _ensure_column(conn, 'patients', 'clinic_id', 'TEXT')
-        _ensure_column(conn, 'patients', 'password_hash', 'TEXT')
-        _ensure_column(conn, 'patients', 'medical_profile_json', 'TEXT')
-        _ensure_column(conn, 'patients', 'professional_profile_json', 'TEXT')
-        _ensure_column(conn, 'appointments', 'description', 'TEXT')
-        conn.execute(
-            """
-            UPDATE patients
-            SET role = CASE
-                WHEN COALESCE(role, '') = '' AND is_admin = 1 THEN 'manager'
-                WHEN COALESCE(role, '') = '' THEN 'patient'
-                ELSE role
-            END
-            """
-        )
-        conn.execute(
-            "UPDATE patients SET is_admin = CASE WHEN role = 'manager' THEN 1 ELSE 0 END"
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-    if settings.env.lower() != 'prod':
-        seed_demo_data()
+    init_rag_db()

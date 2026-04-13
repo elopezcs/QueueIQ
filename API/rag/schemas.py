@@ -30,6 +30,7 @@ class RagSeedOut(BaseModel):
 
 class RagChatStartIn(BaseModel):
     clinic_id: constr(min_length=1, max_length=64)  # type: ignore
+    preferred_language: Literal["en", "fr", "es"] | None = None
 
 
 class RagChatStartOut(BaseModel):
@@ -73,6 +74,20 @@ class RagChatEndOut(BaseModel):
     explanation: str
     disclaimers: list[str]
     run_id: str
+
+
+class RagVoiceConfigOut(BaseModel):
+    voice_input_enabled: bool
+    voice_output_enabled: bool
+    provider: str | None = None
+    max_duration_seconds: int
+
+
+class RagVoiceTranscribeOut(BaseModel):
+    success: bool
+    transcript: str
+    provider: str
+    bytes_processed: int | None = None
 
 
 class RagRetrieveDebugIn(BaseModel):

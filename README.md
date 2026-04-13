@@ -88,6 +88,20 @@ macOS or Linux:
 export OPENAI_API_KEY="your_api_key_here"
 ```
 
+Optional appointment confirmation email flags (disabled by default):
+
+- `QUEUEIQ_EMAIL_ENABLED`: set to `true` to allow SMTP send attempts for appointment confirmation emails
+- `QUEUEIQ_EMAIL_SENDER`: sender email account used for SMTP auth (Gmail account)
+- `QUEUEIQ_EMAIL_APP_PASSWORD`: app password for the sender account
+
+Example:
+
+```env
+QUEUEIQ_EMAIL_ENABLED=false
+QUEUEIQ_EMAIL_SENDER=your_email@gmail.com
+QUEUEIQ_EMAIL_APP_PASSWORD=your_app_password
+```
+
 ## Single Command Launcher
 
 From the repo root, use the shared environment explicitly.
@@ -283,6 +297,27 @@ macOS or Linux:
 ./.venv/bin/python -c "import sqlite3; conn=sqlite3.connect('Chatbot/backend/app.db'); rows=conn.execute(\"SELECT appointment_id, patient_id, clinic_id, scheduled_for, status, description FROM appointments ORDER BY scheduled_for DESC LIMIT 20\").fetchall(); print(rows)"
 ```
 
+### Appointment Confirmation HTML Previews (Book Now)
+
+When a patient completes booking through the frontend Book Now flow (`POST /appointments`), QueueIQ generates one local HTML confirmation preview per appointment.
+
+- Scope: local artifact generation for demos and validation only (no real email send)
+- Output folder: `Chatbot/backend/reports/email_previews/bookings/`
+- Filename pattern: `appointment_confirmation_<appointment_id>.html`
+- Confirmation number in HTML: dynamically generated 6-character uppercase alphanumeric code (`A-Z`, `0-9`)
+
+Quick check (Windows PowerShell):
+
+```powershell
+Get-ChildItem "Chatbot\backend\reports\email_previews\bookings" -Filter "appointment_confirmation_*.html" | Sort-Object LastWriteTime -Descending | Select-Object -First 5 Name, LastWriteTime
+```
+
+Quick check (macOS or Linux):
+
+```bash
+ls -lt Chatbot/backend/reports/email_previews/bookings/appointment_confirmation_*.html | head -n 5
+```
+
 ## Notes
 
 - The launcher skips services that are already reachable on their expected ports.
@@ -344,6 +379,12 @@ RAG_ENABLE_EMBEDDINGS=true
 RAG_EMBEDDING_MODEL=nomic-embed-text
 ENABLE_PROMPT_LOGGING=false
 
+# Voice input prototype (default off)
+VOICE_INPUT_ENABLED=false
+VOICE_OUTPUT_ENABLED=false
+VOICE_TRANSCRIPTION_PROVIDER=openai
+VOICE_MAX_DURATION_SECONDS=30
+
 # Alternative provider mode:
 # RAG_MODEL_PROVIDER=openai_compatible
 # RAG_OPENAI_BASE_URL=http://127.0.0.1:8005/v1
@@ -355,6 +396,26 @@ ENABLE_PROMPT_LOGGING=false
 Supported active models:
 - `gemma3_4b`
 - `qwen2_5_7b_instruct`
+
+### Voice Input Prototype (Phase 1)
+
+Voice input is additive and defaults to OFF. Existing typed chat behavior is unchanged unless enabled.
+
+Enable voice input / output in repo-root `.env`:
+
+```env
+VOICE_INPUT_ENABLED=true
+VOICE_OUTPUT_ENABLED=true
+VOICE_TRANSCRIPTION_PROVIDER=openai
+VOICE_MAX_DURATION_SECONDS=30
+OPENAI_API_KEY=your_api_key_here
+```
+
+How it works:
+- Frontend reads `GET /rag/voice/config` to decide whether to show mic controls.
+- User records a short clip and the frontend sends multipart audio to `POST /rag/chat/transcribe`.
+- Transcript is inserted into the existing chat input for review/edit before manual send.
+- If `VOICE_OUTPUT_ENABLED=true`, newly completed assistant messages can be read aloud via browser speech synthesis.
 
 ### DB Setup and Migration
 
@@ -391,6 +452,11 @@ Required:
 - `POST /rag/chat/turn`
 - `POST /rag/chat/end`
 
+`POST /rag/chat/start` accepts an optional `preferred_language` field (`en`, `fr`, or `es`).
+When omitted, QueueIQ defaults to English. When set to `fr` or `es`, the intake assistant
+returns user-facing chat text and disclaimers in the selected language while preserving the same
+JSON response keys and enum values.
+
 Debug:
 - `POST /rag/retrieve/debug`
 - `GET /rag/session/{session_id}`
@@ -415,6 +481,15 @@ Run tests (including new RAG tests):
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
 ```
+
+Manual voice-input checklist:
+- `VOICE_INPUT_ENABLED` missing/false: no mic controls shown; normal typed chat works unchanged.
+- `VOICE_INPUT_ENABLED=true`: mic button appears in chat modal input row.
+- Start recording, then stop: status transitions to transcribing and transcript is inserted into text box.
+- User can edit transcript and click `Send` to use normal `/rag/chat/turn` flow.
+- Invalid upload/provider issues show a controlled error and do not break the rest of the chat UI.
+- `VOICE_OUTPUT_ENABLED` missing/false: no TTS controls appear; text chat behavior is unchanged.
+- `VOICE_OUTPUT_ENABLED=true`: new assistant reply is spoken once, replay works, and stop cancels playback safely.
 
 ### Bulk Patient Ingestion ETL
 

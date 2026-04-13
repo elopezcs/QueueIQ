@@ -147,6 +147,7 @@ export async function getStaffAppointments(filters = {}) {
     patient_query: filters.patientQuery || '',
     scheduled_from: filters.scheduledFrom || '',
     scheduled_to: filters.scheduledTo || '',
+    clinic_id: filters.clinicId || '',
   };
 
   Object.entries(entries).forEach(([key, value]) => {
@@ -188,11 +189,16 @@ export async function createQueuePatientRecord(payload) {
   });
 }
 
-export async function startChat(clinicId) {
+export async function startChat(clinicId, preferredLanguage = '') {
+  const payload = { clinic_id: clinicId };
+  const normalizedLanguage = String(preferredLanguage || '').trim().toLowerCase();
+  if (normalizedLanguage === 'en' || normalizedLanguage === 'fr' || normalizedLanguage === 'es') {
+    payload.preferred_language = normalizedLanguage;
+  }
   return apiFetch('/rag/chat/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ clinic_id: clinicId }),
+    body: JSON.stringify(payload),
   });
 }
 
@@ -212,6 +218,22 @@ export async function endChat(sessionId) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ session_id: sessionId }),
+  });
+}
+
+export async function getVoiceConfig() {
+  return apiFetch('/rag/voice/config', {
+    headers: { ...authHeaders() },
+  });
+}
+
+export async function transcribeVoiceAudio(blob, filename = 'recording.webm') {
+  const formData = new FormData();
+  formData.append('file', blob, filename);
+  return apiFetch('/rag/chat/transcribe', {
+    method: 'POST',
+    headers: { ...authHeaders() },
+    body: formData,
   });
 }
 
@@ -262,5 +284,4 @@ export async function getRagTrace(traceId) {
     headers: { ...authHeaders() },
   });
 }
-
 

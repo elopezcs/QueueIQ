@@ -24,6 +24,11 @@ def _hash_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _normalize_language(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in {"en", "fr", "es"} else "en"
+
+
 class RagService:
     def __init__(self) -> None:
         self.db_ready, self.pgvector_enabled = init_rag_db()
@@ -345,7 +350,17 @@ class RagService:
         items = self.orchestrator.patient_retriever.retrieve(patient_id=patient_id, query=query, limit=6)
         if not items:
             return None
-        lines = []
+        source_types = {
+            str(item.get("source_type") or "").strip().lower()
+            for item in items
+            if str(item.get("source_type") or "").strip()
+        }
+        lines = [
+            f"known_allergies_present={'true' if 'allergy' in source_types else 'false'}",
+            f"known_medications_present={'true' if 'medication' in source_types else 'false'}",
+            f"known_chronic_conditions_present={'true' if ('encounter' in source_types or 'clinical_note' in source_types) else 'false'}",
+            "known_context_snippets:",
+        ]
         for item in items:
             source = str(item.get("source_type") or "context")
             snippet = str(item.get("snippet") or "").strip()
@@ -378,6 +393,7 @@ class RagService:
         patient_id: str,
         clinic_id: str,
         patient_profile: dict[str, Any] | None = None,
+        preferred_language: str | None = None,
     ) -> dict[str, Any]:
         clinic = self._resolve_clinic(clinic_id)
         if not clinic:
@@ -400,20 +416,21 @@ class RagService:
         )
 
         session_id = f"rag_sess_{secrets.token_hex(12)}"
+        session_language = _normalize_language(preferred_language)
         execute(
-            "INSERT INTO rag.patient_chat_sessions(session_id, patient_id, clinic_id, started_at) VALUES(%s,%s,%s,%s)",
-            (session_id, patient_id, clinic_id, _now_iso()),
+            (
+                "INSERT INTO rag.patient_chat_sessions("
+                "session_id, patient_id, clinic_id, preferred_language, started_at"
+                ") VALUES(%s,%s,%s,%s,%s)"
+            ),
+            (session_id, patient_id, clinic_id, session_language, _now_iso()),
         )
         self._upsert_public_patient(patient_id=patient_id, patient_profile=patient_profile)
         self._insert_public_session(session_id=session_id, clinic_id=clinic_id, patient_id=patient_id)
         logger.info("RAG session started: session_id=%s patient_id=%s clinic_id=%s", session_id, patient_id, clinic_id)
-        patient_context = self._patient_context_text(
-            patient_id=patient_id,
-            query="medical profile history medications allergies",
-        )
         first, disclaimers = self.intake_orchestrator.first_message(
             clinic=clinic,
-            patient_context=patient_context,
+            language=session_language,
         )
         self._insert_rag_message(session_id=session_id, role="assistant", content=first)
         self._insert_public_message(session_id=session_id, role="assistant", content=first)
@@ -421,7 +438,10 @@ class RagService:
 
     def _session(self, session_id: str) -> dict[str, Any] | None:
         rows = fetch_all(
-            "SELECT session_id, patient_id, clinic_id, started_at, ended_at FROM rag.patient_chat_sessions WHERE session_id=%s LIMIT 1",
+            (
+                "SELECT session_id, patient_id, clinic_id, preferred_language, started_at, ended_at "
+                "FROM rag.patient_chat_sessions WHERE session_id=%s LIMIT 1"
+            ),
             (session_id,),
         )
         return rows[0] if rows else None
@@ -439,6 +459,7 @@ class RagService:
         clinic = self._resolve_clinic(str(session["clinic_id"]))
         if not clinic:
             raise ValueError("CLINIC_NOT_FOUND")
+        session_language = _normalize_language(str(session.get("preferred_language") or "en"))
 
         route = route_query(user_message)
         turn_id, _ = self._create_turn(
@@ -471,6 +492,7 @@ class RagService:
                 clinic=clinic,
                 transcript=transcript,
                 patient_context=patient_context,
+                language=session_language,
                 session_id=session_id,
                 clinic_id=str(session["clinic_id"]),
                 patient_id=patient_id,
@@ -539,6 +561,7 @@ class RagService:
         clinic = self._resolve_clinic(str(session["clinic_id"]))
         if not clinic:
             raise ValueError("CLINIC_NOT_FOUND")
+        session_language = _normalize_language(str(session.get("preferred_language") or "en"))
 
         transcript = self._transcript(session_id)
         user_messages = [
@@ -554,6 +577,7 @@ class RagService:
             clinic=clinic,
             transcript=transcript,
             patient_context=patient_context,
+            language=session_language,
             session_id=session_id,
             clinic_id=str(session["clinic_id"]),
             patient_id=patient_id,
@@ -643,6 +667,7 @@ class RagService:
         *,
         requester_patient_id: str,
         requester_role: str,
+        requester_clinic_id: str | None = None,
         patient_id: str | None = None,
         limit: int = 50,
         offset: int = 0,
@@ -667,6 +692,7 @@ class RagService:
             LEFT JOIN rag.llm_runs r ON r.session_id = s.session_id
             LEFT JOIN rag.chat_outputs o ON o.session_id = s.session_id
             WHERE (%s IS NULL OR s.patient_id = %s)
+              AND (%s != 'staff' OR (%s IS NOT NULL AND CASE s.clinic_id WHEN 'Downtown-Clinic' THEN 'kitchener-downtown' WHEN 'Westside-Clinic' THEN 'waterloo-uptown' ELSE s.clinic_id END = %s))
             GROUP BY s.session_id,
                      s.patient_id,
                      s.clinic_id,
@@ -680,7 +706,15 @@ class RagService:
             ORDER BY s.started_at DESC
             LIMIT %s OFFSET %s
             """,
-            (effective_patient_id, effective_patient_id, int(limit), int(offset)),
+            (
+                effective_patient_id,
+                effective_patient_id,
+                requester_role,
+                requester_clinic_id,
+                requester_clinic_id,
+                int(limit),
+                int(offset),
+            ),
         )
         return rows
 
@@ -689,6 +723,7 @@ class RagService:
         *,
         requester_patient_id: str,
         requester_role: str,
+        requester_clinic_id: str | None = None,
         session_id: str,
     ) -> list[dict[str, Any]]:
         rows = fetch_all(
@@ -711,9 +746,17 @@ class RagService:
             LEFT JOIN rag.patient_chat_messages am ON am.id = t.assistant_message_id
             WHERE t.session_id = %s
               AND (%s IN ('manager', 'staff') OR s.patient_id = %s)
+              AND (%s != 'staff' OR (%s IS NOT NULL AND CASE s.clinic_id WHEN 'Downtown-Clinic' THEN 'kitchener-downtown' WHEN 'Westside-Clinic' THEN 'waterloo-uptown' ELSE s.clinic_id END = %s))
             ORDER BY t.turn_index ASC
             """,
-            (session_id, requester_role, requester_patient_id),
+            (
+                session_id,
+                requester_role,
+                requester_patient_id,
+                requester_role,
+                requester_clinic_id,
+                requester_clinic_id,
+            ),
         )
         return rows
 
@@ -722,6 +765,7 @@ class RagService:
         *,
         requester_patient_id: str,
         requester_role: str,
+        requester_clinic_id: str | None = None,
         patient_id: str | None = None,
         session_id: str | None = None,
         model_key: str | None = None,
@@ -748,6 +792,7 @@ class RagService:
             WHERE (%s IS NULL OR s.patient_id = %s)
               AND (%s IS NULL OR r.session_id = %s)
               AND (%s IS NULL OR r.model_key = %s)
+              AND (%s != 'staff' OR (%s IS NOT NULL AND CASE s.clinic_id WHEN 'Downtown-Clinic' THEN 'kitchener-downtown' WHEN 'Westside-Clinic' THEN 'waterloo-uptown' ELSE s.clinic_id END = %s))
             ORDER BY r.created_at DESC
             LIMIT %s OFFSET %s
             """,
@@ -758,6 +803,9 @@ class RagService:
                 session_id,
                 model_key,
                 model_key,
+                requester_role,
+                requester_clinic_id,
+                requester_clinic_id,
                 int(limit),
                 int(offset),
             ),
@@ -769,17 +817,26 @@ class RagService:
         *,
         requester_patient_id: str,
         requester_role: str,
+        requester_clinic_id: str | None = None,
         session_id: str,
     ) -> dict[str, Any] | None:
         session_rows = fetch_all(
             """
-            SELECT session_id, patient_id, clinic_id, started_at, ended_at
-            FROM rag.patient_chat_sessions
-            WHERE session_id=%s
-              AND (%s IN ('manager', 'staff') OR patient_id = %s)
+            SELECT s.session_id, s.patient_id, s.clinic_id, s.started_at, s.ended_at
+            FROM rag.patient_chat_sessions s
+            WHERE s.session_id=%s
+              AND (%s IN ('manager', 'staff') OR s.patient_id = %s)
+              AND (%s != 'staff' OR (%s IS NOT NULL AND CASE s.clinic_id WHEN 'Downtown-Clinic' THEN 'kitchener-downtown' WHEN 'Westside-Clinic' THEN 'waterloo-uptown' ELSE s.clinic_id END = %s))
             LIMIT 1
             """,
-            (session_id, requester_role, requester_patient_id),
+            (
+                session_id,
+                requester_role,
+                requester_patient_id,
+                requester_role,
+                requester_clinic_id,
+                requester_clinic_id,
+            ),
         )
         if not session_rows:
             return None
@@ -806,11 +863,13 @@ class RagService:
             "turns": self.list_audit_turns(
                 requester_patient_id=requester_patient_id,
                 requester_role=requester_role,
+                requester_clinic_id=requester_clinic_id,
                 session_id=session_id,
             ),
             "llm_runs": self.list_audit_runs(
                 requester_patient_id=requester_patient_id,
                 requester_role=requester_role,
+                requester_clinic_id=requester_clinic_id,
                 session_id=session_id,
                 limit=200,
                 offset=0,
@@ -1079,4 +1138,3 @@ def get_rag_service() -> RagService:
     if _SERVICE is None:
         _SERVICE = RagService()
     return _SERVICE
-
