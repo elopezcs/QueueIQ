@@ -24,8 +24,14 @@ class Settings(BaseSettings):
     openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
     voice_input_enabled: bool = Field(default=False, alias="VOICE_INPUT_ENABLED")
     voice_output_enabled: bool = Field(default=False, alias="VOICE_OUTPUT_ENABLED")
+    voice_output_provider: str = Field(default="system", alias="VOICE_OUTPUT_PROVIDER")
     voice_transcription_provider: str = Field(default="openai", alias="VOICE_TRANSCRIPTION_PROVIDER")
     voice_max_duration_seconds: int = Field(default=30, alias="VOICE_MAX_DURATION_SECONDS")
+    openai_tts_model: str = Field(default="gpt-4o-mini-tts", alias="OPENAI_TTS_MODEL")
+    openai_tts_voice: str = Field(default="coral", alias="OPENAI_TTS_VOICE")
+    openai_tts_instructions: str = Field(default="", alias="OPENAI_TTS_INSTRUCTIONS")
+    openai_tts_audio_format: str = Field(default="mp3", alias="OPENAI_TTS_AUDIO_FORMAT")
+    openai_tts_speed: float = Field(default=1.0, alias="OPENAI_TTS_SPEED")
 
     # Auth
     auth_secret: str = Field(default="dev-auth-secret", alias="AUTH_SECRET")
