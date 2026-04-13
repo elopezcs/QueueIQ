@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from API.rag.schemas import PublicTraceabilitySummaryOut
+from API.rag.schemas import PublicTraceabilityDetailOut, PublicTraceabilitySummaryOut
 from API.rag.services.rag_service import get_rag_service
 
 router = APIRouter(tags=["traceability"])
@@ -24,3 +24,16 @@ def get_public_traceability_summary(session_id: str):
     if not summary:
         return _error(404, "Session not found", "NOT_FOUND", "session_id")
     return PublicTraceabilitySummaryOut(**summary)
+
+
+# Summary returns only the high-level intake outcome; detail includes session metadata and transcript messages for UI drill-down.
+@router.get("/traceability/{session_id}/detail", response_model=PublicTraceabilityDetailOut)
+def get_public_traceability_detail(session_id: str):
+    cleaned_session_id = str(session_id or "").strip()
+    if not cleaned_session_id:
+        return _error(400, "session_id is required and cannot be empty", "MISSING_FIELD", "session_id")
+
+    detail = get_rag_service().public_session_detail(session_id=cleaned_session_id)
+    if not detail:
+        return _error(404, "Session not found", "NOT_FOUND", "session_id")
+    return PublicTraceabilityDetailOut(**detail)

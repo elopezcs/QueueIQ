@@ -1,5 +1,7 @@
 import importlib.util
 import json
+import importlib.util
+import json
 import logging
 import os
 import random
@@ -9,20 +11,27 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime, timedelta
 from html import escape
 
+import joblib
 import joblib
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from sklearn.metrics import accuracy_score, roc_auc_score
+from sklearn.metrics import accuracy_score, roc_auc_score
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if REPO_ROOT not in sys.path:
 	sys.path.insert(0, REPO_ROOT)
 
+# from QueueControl.api_client import QueueControlApiClient
+from database.database_manager import DatabaseManager
 # from QueueControl.api_client import QueueControlApiClient
 from database.database_manager import DatabaseManager
 
@@ -124,6 +133,8 @@ def dashboard_hero_panel_text(
 			f"{backend.sim_config['doctors_per_clinic'].get(selected_clinic, 1)} doctor(s) assigned to this clinic."
 		)
 	return f"Auto-refresh every {backend.sim_config['sim_speed']:.1f} seconds for a patient-friendly live queue view."
+
+QUEUECONTROL_API_BASE_URL = os.getenv("QUEUECONTROL_API_BASE_URL", "http://localhost:8000").rstrip("/")
 
 QUEUE_COLUMNS = [
 	"record_id",
@@ -451,6 +462,68 @@ GLOBAL_STYLES = """
 	color: var(--color-muted);
 	font-size: 0.9rem;
 	line-height: 1.45;
+  line-height: 1.45;
+}
+
+.model-summary-shell {
+	background: var(--color-surface);
+	border-radius: 18px;
+	border: 1px solid #e8f1f2;
+	border-top: 4px solid var(--color-azure);
+	padding: 1.15rem 1.2rem;
+	box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+	min-height: 100%;
+}
+
+.model-summary-shell.model-summary-water { border-top-color: var(--color-water); }
+.model-summary-shell.model-summary-peach { border-top-color: var(--color-peach); }
+
+.model-summary-kicker {
+	color: var(--color-muted);
+	font-size: 0.78rem;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	margin-bottom: 0.4rem;
+}
+
+.model-summary-title {
+	color: var(--color-azure);
+	font-size: 1.28rem;
+	font-weight: 700;
+	line-height: 1.2;
+	margin-bottom: 0.85rem;
+}
+
+.model-summary-item {
+	padding: 0.7rem 0;
+	border-top: 1px solid #e8f1f2;
+}
+
+.model-summary-item:first-of-type {
+	border-top: 0;
+	padding-top: 0;
+}
+
+.model-summary-item-label {
+	color: var(--color-muted);
+	font-size: 0.8rem;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	margin-bottom: 0.2rem;
+}
+
+.model-summary-item-value {
+	color: var(--color-azure);
+	font-size: 1.15rem;
+	font-weight: 700;
+	line-height: 1.2;
+	margin-bottom: 0.2rem;
+}
+
+.model-summary-item-caption {
+	color: var(--color-muted);
+	font-size: 0.9rem;
+	line-height: 1.45;
 }
 
 div[data-testid="stMetric"] {
@@ -564,7 +637,12 @@ class QueueSimulationBackend:
 		# self.api.health()
 		self.db_manager = DatabaseManager()
 		self.db_manager.init_db()
+		# self.api = QueueControlApiClient()
+		# self.api.health()
+		self.db_manager = DatabaseManager()
+		self.db_manager.init_db()
 
+		self.clinics_df = self.db_manager.fetch_clinics().copy()
 		self.clinics_df = self.db_manager.fetch_clinics().copy()
 		self.clinic_names = self.clinics_df["clinic_name"].tolist()
 		self.clinic_id_by_name = dict(zip(self.clinics_df["clinic_name"], self.clinics_df["clinic_id"]))
@@ -572,9 +650,14 @@ class QueueSimulationBackend:
 		self.simulation_state_path = os.path.abspath(
 			os.path.join(REPO_ROOT, "runtime-logs", "queuecontrol_simulation_state.json")
 		)
+		script_dir = os.path.dirname(os.path.abspath(__file__))
+		self.simulation_state_path = os.path.abspath(
+			os.path.join(REPO_ROOT, "runtime-logs", "queuecontrol_simulation_state.json")
+		)
 		self.sim_config = {
 			"num_doctors": 2,
 			"sim_speed": 2.0,
+			"simulation_enabled": True,
 			"simulation_enabled": True,
 			"use_rush_hour_predictor": True,
 			"manual_rush_hour_probability": 0,
@@ -605,6 +688,25 @@ class QueueSimulationBackend:
 		self.wait_time_training_script_path = os.path.abspath(
 			os.path.join(script_dir, "..", "model-training", "wait_time_predictor_model.py")
 		)
+
+		self.model_path = os.path.abspath(
+			os.path.join(script_dir, "..", "models", "rush_hour_predictor_model.joblib")
+		)
+		self.model_metrics_path = os.path.abspath(
+			os.path.join(script_dir, "..", "models", "rush_hour_predictor_metrics.json")
+		)
+		self.wait_time_model_path = os.path.abspath(
+			os.path.join(script_dir, "..", "models", "wait_time_predictor_model.joblib")
+		)
+		self.wait_time_metrics_path = os.path.abspath(
+			os.path.join(script_dir, "..", "models", "wait_time_predictor_metrics.json")
+		)
+		self.training_script_path = os.path.abspath(
+			os.path.join(script_dir, "..", "model-training", "rush_hour_predictor_model.py")
+		)
+		self.wait_time_training_script_path = os.path.abspath(
+			os.path.join(script_dir, "..", "model-training", "wait_time_predictor_model.py")
+		)
 		self.rush_hour_predictor_model = self.load_rush_hour_model()
 		self.model_metrics = self.load_model_metrics()
 		self.wait_time_model = self.load_wait_time_model()
@@ -616,9 +718,63 @@ class QueueSimulationBackend:
 		self.ensure_simulation_control_state()
 		self.sync_simulation_state()
 		self._last_simulation_enabled = bool(self.sim_config["simulation_enabled"])
+		self.rush_hour_model_mtime = self.get_artifact_mtime(self.model_path)
+		self.rush_hour_metrics_mtime = self.get_artifact_mtime(self.model_metrics_path)
+		self.wait_time_model_mtime = self.get_artifact_mtime(self.wait_time_model_path)
+		self.wait_time_metrics_mtime = self.get_artifact_mtime(self.wait_time_metrics_path)
+		self.ensure_simulation_control_state()
+		self.sync_simulation_state()
+		self._last_simulation_enabled = bool(self.sim_config["simulation_enabled"])
 
 		self._simulation_thread: threading.Thread | None = None
 		self._simulation_lock = threading.Lock()
+
+	def ensure_simulation_control_state(self) -> None:
+		os.makedirs(os.path.dirname(self.simulation_state_path), exist_ok=True)
+		if os.path.exists(self.simulation_state_path):
+			return
+
+		self._write_simulation_control_state(True)
+
+	def _read_simulation_control_state(self) -> dict[str, object]:
+		default_state = {
+			"simulation_enabled": True,
+			"updated_at": datetime.now().isoformat(timespec="seconds"),
+		}
+
+		try:
+			with open(self.simulation_state_path, encoding="utf-8") as state_file:
+				payload = json.load(state_file)
+		except (FileNotFoundError, json.JSONDecodeError, OSError):
+			return default_state
+
+		if not isinstance(payload, dict):
+			return default_state
+
+		return {
+			"simulation_enabled": bool(payload.get("simulation_enabled", True)),
+			"updated_at": str(payload.get("updated_at", default_state["updated_at"])),
+		}
+
+	def _write_simulation_control_state(self, simulation_enabled: bool) -> None:
+		state_payload = {
+			"simulation_enabled": bool(simulation_enabled),
+			"updated_at": datetime.now().isoformat(timespec="seconds"),
+		}
+		temp_path = f"{self.simulation_state_path}.{os.getpid()}.tmp"
+		with open(temp_path, "w", encoding="utf-8") as state_file:
+			json.dump(state_payload, state_file)
+		os.replace(temp_path, self.simulation_state_path)
+
+	def sync_simulation_state(self) -> bool:
+		state_payload = self._read_simulation_control_state()
+		simulation_enabled = bool(state_payload["simulation_enabled"])
+		self.sim_config["simulation_enabled"] = simulation_enabled
+		return simulation_enabled
+
+	def set_simulation_enabled(self, simulation_enabled: bool) -> bool:
+		self._write_simulation_control_state(simulation_enabled)
+		return self.sync_simulation_state()
 
 	def ensure_simulation_control_state(self) -> None:
 		os.makedirs(os.path.dirname(self.simulation_state_path), exist_ok=True)
@@ -678,8 +834,20 @@ class QueueSimulationBackend:
 		module = importlib.util.module_from_spec(spec)
 		spec.loader.exec_module(module)
 		module.train_model()
+		# self.api.train_model("rush-hour")
+		spec = importlib.util.spec_from_file_location(
+			"rush_hour_predictor_model", self.training_script_path
+		)
+		if spec is None or spec.loader is None:
+			raise ImportError(f"Unable to load training script from {self.training_script_path}")
+
+		module = importlib.util.module_from_spec(spec)
+		spec.loader.exec_module(module)
+		module.train_model()
 		self.rush_hour_predictor_model = self.load_rush_hour_model()
 		self.model_metrics = self.load_model_metrics()
+		self.rush_hour_model_mtime = self.get_artifact_mtime(self.model_path)
+		self.rush_hour_metrics_mtime = self.get_artifact_mtime(self.model_metrics_path)
 		self.rush_hour_model_mtime = self.get_artifact_mtime(self.model_path)
 		self.rush_hour_metrics_mtime = self.get_artifact_mtime(self.model_metrics_path)
 
@@ -694,8 +862,20 @@ class QueueSimulationBackend:
 		module = importlib.util.module_from_spec(spec)
 		spec.loader.exec_module(module)
 		module.train_model()
+		# self.api.train_model("wait-time")
+		spec = importlib.util.spec_from_file_location(
+			"wait_time_predictor_model", self.wait_time_training_script_path
+		)
+		if spec is None or spec.loader is None:
+			raise ImportError(f"Unable to load training script from {self.wait_time_training_script_path}")
+
+		module = importlib.util.module_from_spec(spec)
+		spec.loader.exec_module(module)
+		module.train_model()
 		self.wait_time_model = self.load_wait_time_model()
 		self.wait_time_metrics = self.load_wait_time_metrics()
+		self.wait_time_model_mtime = self.get_artifact_mtime(self.wait_time_model_path)
+		self.wait_time_metrics_mtime = self.get_artifact_mtime(self.wait_time_metrics_path)
 		self.wait_time_model_mtime = self.get_artifact_mtime(self.wait_time_model_path)
 		self.wait_time_metrics_mtime = self.get_artifact_mtime(self.wait_time_metrics_path)
 
@@ -704,8 +884,15 @@ class QueueSimulationBackend:
 		if not os.path.exists(path):
 			return None
 		return os.path.getmtime(path)
+		if not os.path.exists(path):
+			return None
+		return os.path.getmtime(path)
 
 	def load_rush_hour_model(self):
+		# status_payload = self.api.validate_model("rush-hour")
+		if not os.path.exists(self.model_path):
+			return None
+		return joblib.load(self.model_path)
 		# status_payload = self.api.validate_model("rush-hour")
 		if not os.path.exists(self.model_path):
 			return None
@@ -721,7 +908,17 @@ class QueueSimulationBackend:
 		with open(self.model_metrics_path, "r", encoding="utf-8") as metrics_file:
 			return json.load(metrics_file)
 
+		if not os.path.exists(self.model_metrics_path):
+			return self.estimate_model_metrics()
+
+		with open(self.model_metrics_path, "r", encoding="utf-8") as metrics_file:
+			return json.load(metrics_file)
+
 	def load_wait_time_model(self) -> dict[str, object] | None:
+		# status_payload = self.api.validate_model("wait-time")
+		if not os.path.exists(self.wait_time_model_path):
+			return None
+		return joblib.load(self.wait_time_model_path)
 		# status_payload = self.api.validate_model("wait-time")
 		if not os.path.exists(self.wait_time_model_path):
 			return None
@@ -737,7 +934,26 @@ class QueueSimulationBackend:
 		with open(self.wait_time_metrics_path, "r", encoding="utf-8") as metrics_file:
 			return json.load(metrics_file)
 
+		if not os.path.exists(self.wait_time_metrics_path):
+			return {}
+
+		with open(self.wait_time_metrics_path, "r", encoding="utf-8") as metrics_file:
+			return json.load(metrics_file)
+
 	def refresh_wait_time_artifacts_if_needed(self) -> None:
+		current_model_mtime = self.get_artifact_mtime(self.wait_time_model_path)
+		current_metrics_mtime = self.get_artifact_mtime(self.wait_time_metrics_path)
+
+		model_changed = current_model_mtime != self.wait_time_model_mtime
+		metrics_changed = current_metrics_mtime != self.wait_time_metrics_mtime
+
+		if model_changed:
+			self.wait_time_model = self.load_wait_time_model()
+			self.wait_time_model_mtime = current_model_mtime
+
+		if metrics_changed or (model_changed and current_metrics_mtime is not None):
+			self.wait_time_metrics = self.load_wait_time_metrics()
+			self.wait_time_metrics_mtime = current_metrics_mtime
 		current_model_mtime = self.get_artifact_mtime(self.wait_time_model_path)
 		current_metrics_mtime = self.get_artifact_mtime(self.wait_time_metrics_path)
 
@@ -766,8 +982,68 @@ class QueueSimulationBackend:
 		if metrics_changed or (model_changed and current_metrics_mtime is not None):
 			self.model_metrics = self.load_model_metrics()
 			self.rush_hour_metrics_mtime = current_metrics_mtime
+		current_model_mtime = self.get_artifact_mtime(self.model_path)
+		current_metrics_mtime = self.get_artifact_mtime(self.model_metrics_path)
+
+		model_changed = current_model_mtime != self.rush_hour_model_mtime
+		metrics_changed = current_metrics_mtime != self.rush_hour_metrics_mtime
+
+		if model_changed:
+			self.rush_hour_predictor_model = self.load_rush_hour_model()
+			self.rush_hour_model_mtime = current_model_mtime
+
+		if metrics_changed or (model_changed and current_metrics_mtime is not None):
+			self.model_metrics = self.load_model_metrics()
+			self.rush_hour_metrics_mtime = current_metrics_mtime
 
 	def estimate_model_metrics(self) -> dict[str, object]:
+		if self.rush_hour_predictor_model is None:
+			return {}
+
+		try:
+			training_df = self.db_manager.fetch_training_data("clinic_historical_data")
+		except Exception:
+			return {}
+
+		feature_names = list(
+			getattr(
+				self.rush_hour_predictor_model,
+				"feature_names_in_",
+				[
+					"is_weekend",
+					"day_sin",
+					"day_cos",
+					"hour_sin",
+					"hour_cos",
+					"queue_length_at_arrival",
+					"arrivals_last_1_hour",
+					"avg_wait_last_1_hour",
+				],
+			)
+		)
+
+		required_columns = feature_names + ["is_surge_imminent"]
+		if training_df.empty or any(column not in training_df.columns for column in required_columns):
+			return {}
+
+		eval_df = training_df[required_columns].replace([np.inf, -np.inf], np.nan).dropna()
+		if eval_df.empty:
+			return {}
+
+		features = eval_df[feature_names]
+		target = eval_df["is_surge_imminent"].astype(int)
+		if target.nunique() < 2:
+			return {}
+
+		predictions = self.rush_hour_predictor_model.predict(features)
+		probabilities = self.rush_hour_predictor_model.predict_proba(features)[:, 1]
+		return {
+			"accuracy": float(accuracy_score(target, predictions)),
+			"roc_auc": float(roc_auc_score(target, probabilities)),
+			"trained_at": "Unavailable",
+			"performance_source": "retrospective",
+			"evaluation_rows": int(len(eval_df)),
+		}
 		if self.rush_hour_predictor_model is None:
 			return {}
 
@@ -881,6 +1157,36 @@ class QueueSimulationBackend:
 		])
 
 		return round(float(self.rush_hour_predictor_model.predict_proba(features)[0][1]), 4)
+		df = self.prepare_queue_df(self.db_manager.fetch_queue()) if queue_df is None else queue_df
+		current_time = datetime.now() if now is None else now
+
+		recent_patients = self.create_empty_queue_df()
+		if not df.empty and "arrival_time" in df.columns:
+			recent_patients = df[df["arrival_time"] >= (current_time - timedelta(hours=1))]
+
+		avg_wait_last_1_hour = 0.0
+		if not recent_patients.empty:
+			avg_wait_last_1_hour = (
+				(current_time - recent_patients["arrival_time"]).dt.total_seconds().mean() / 60.0
+			)
+
+		hour_of_day = current_time.hour
+		day_of_week = current_time.weekday()
+
+		features = pd.DataFrame([
+			{
+				"is_weekend": int(day_of_week >= 5),
+				"day_sin": np.sin(2 * np.pi * day_of_week / 7.0),
+				"day_cos": np.cos(2 * np.pi * day_of_week / 7.0),
+				"hour_sin": np.sin(2 * np.pi * hour_of_day / 24.0),
+				"hour_cos": np.cos(2 * np.pi * hour_of_day / 24.0),
+				"queue_length_at_arrival": len(df),
+				"arrivals_last_1_hour": len(recent_patients),
+				"avg_wait_last_1_hour": avg_wait_last_1_hour,
+			}
+		])
+
+		return round(float(self.rush_hour_predictor_model.predict_proba(features)[0][1]), 4)
 
 	def get_surge_probability(
 		self,
@@ -897,6 +1203,7 @@ class QueueSimulationBackend:
 		return model_probability
 
 	def get_completed_patient_logs(self, clinic_name: str) -> pd.DataFrame:
+		activity_df = self.prepare_queue_df(self.db_manager.fetch_queue_activity())
 		activity_df = self.prepare_queue_df(self.db_manager.fetch_queue_activity())
 		if activity_df.empty:
 			return activity_df
@@ -924,6 +1231,12 @@ class QueueSimulationBackend:
 					"Train rush_hour_predictor_model to enable learned rush-hour accuracy reporting.",
 					"water",
 				),
+				# (
+				# 	"ROC-AUC",
+				# 	"Unavailable",
+				# 	"Train rush_hour_predictor_model to enable separation-quality reporting.",
+				# 	"peach",
+				# ),
 				# (
 				# 	"ROC-AUC",
 				# 	"Unavailable",
@@ -971,6 +1284,12 @@ class QueueSimulationBackend:
 				),
 				"water",
 			),
+			# (
+			# 	"ROC-AUC",
+			# 	f"{float(roc_auc):.3f}" if roc_auc is not None else "Unavailable",
+			# 	"How well the model separates surge and non-surge periods overall.",
+			# 	"peach",
+			# ),
 			# (
 			# 	"ROC-AUC",
 			# 	f"{float(roc_auc):.3f}" if roc_auc is not None else "Unavailable",
@@ -1049,6 +1368,64 @@ class QueueSimulationBackend:
 			),
 		]
 
+	def get_wait_time_model_performance_metrics(self) -> list[tuple[str, str, str, str]]:
+		self.refresh_wait_time_artifacts_if_needed()
+		if self.wait_time_model is None:
+			return [
+				(
+					"P50 MAE",
+					"Unavailable",
+					"Train wait_time_predictor_model to enable saved wait-time quality reporting.",
+					"water",
+				),
+				(
+					"P90 coverage",
+					"Unavailable",
+					"Coverage will appear here after the wait-time model artifact is created.",
+					"peach",
+				),
+				(
+					"Last retrained",
+					"Unavailable",
+					"No saved wait-time model artifact is currently available.",
+					"",
+				),
+			]
+
+		metrics = self.wait_time_metrics or {}
+		trained_at = str(metrics.get("trained_at") or "Unavailable")
+		if trained_at != "Unavailable":
+			trained_at = trained_at.replace("T", " ").replace("Z", " UTC")
+
+		return [
+			(
+				"P50 MAE",
+				(
+					f"{float(metrics.get('p50_mae_minutes')):.2f} min"
+					if metrics.get("p50_mae_minutes") is not None
+					else "Unavailable"
+				),
+				"Average absolute error for the median wait-time estimate on the evaluation split.",
+				"water",
+			),
+			(
+				"P90 coverage",
+				(
+					f"{float(metrics.get('p90_coverage')) * 100:.1f}%"
+					if metrics.get("p90_coverage") is not None
+					else "Unavailable"
+				),
+				"Observed share of waits that fell below the saved P90 estimate.",
+				"peach",
+			),
+			(
+				"Last retrained",
+				trained_at,
+				"Timestamp of the latest saved wait-time evaluation and model artifact.",
+				"",
+			),
+		]
+
 	def get_manager_metrics(self, clinic_name: str) -> list[tuple[str, str, str, str]]:
 		now = datetime.now()
 		doctor_count = max(0, int(self.sim_config["doctors_per_clinic"].get(clinic_name, 0)))
@@ -1057,6 +1434,7 @@ class QueueSimulationBackend:
 			busy_doctors = sum(1 for free_at in self.doctors_free_at.get(clinic_name, [])[:doctor_count] if free_at > now)
 		utilization = (busy_doctors / doctor_count * 100.0) if doctor_count else 0.0
 
+		activity_df = self.prepare_queue_df(self.db_manager.fetch_queue_activity())
 		activity_df = self.prepare_queue_df(self.db_manager.fetch_queue_activity())
 		if "seen_by_doctor_time" in activity_df.columns:
 			activity_df["seen_by_doctor_time"] = pd.to_datetime(activity_df["seen_by_doctor_time"])
@@ -1124,10 +1502,17 @@ class QueueSimulationBackend:
 			# 	arrival_status_caption,
 			# 	arrival_status_accent,
 			# ),
+			# (
+			# 	"Arrival throttle",
+			# 	arrival_status_value,
+			# 	arrival_status_caption,
+			# 	arrival_status_accent,
+			# ),
 		]
 
 	def get_manager_forecasts(self, clinic_name: str) -> list[tuple[str, str, str, str]]:
 		now = datetime.now()
+		queue_df = self.prepare_queue_df(self.db_manager.fetch_queue())
 		queue_df = self.prepare_queue_df(self.db_manager.fetch_queue())
 		surge_probability = self.get_surge_probability(queue_df=queue_df, now=now)
 		arrival_probability_per_tick = self.get_arrival_probability_per_tick(surge_probability)
@@ -1244,13 +1629,13 @@ class QueueSimulationBackend:
 		if prediction is None:
 			return [
 				(
-					"Estimated wait P50",
+					"Average Estimated Wait Time",
 					"Unavailable",
 					"Train wait_time_predictor_model to enable learned wait-time estimates.",
 					"water",
 				),
 				(
-					"Estimated wait P90",
+					"Maximum Estimated Wait Time",
 					"Unavailable",
 					"Train wait_time_predictor_model to enable learned wait-time estimates.",
 					"peach",
@@ -1260,15 +1645,15 @@ class QueueSimulationBackend:
 		predicted_p50, predicted_p90 = prediction
 		return [
 			(
-				"Estimated wait P50",
+				"Average Estimated Wait Time",
 				format_minutes_label(predicted_p50),
-				"Median expected wait for a new arrival based on the current queue and historical patterns.",
+				"Average expected wait time for a new arrival.",
 				"water",
 			),
 			(
-				"Estimated wait P90",
+				"Maximum Estimated Wait Time",
 				format_minutes_label(predicted_p90),
-				"Higher-end wait estimate to communicate a cautious arrival-time expectation.",
+				"Higher-end wait time estimate for a new arrival.",
 				"peach",
 			),
 		]
@@ -1424,7 +1809,10 @@ def inject_styles() -> None:
 def format_next_up(df_waiting: pd.DataFrame) -> str:
 	if df_waiting.empty:
 		return "None"
-	return str(int(df_waiting.iloc[0]["patient_id"]))
+	patient_id = df_waiting.iloc[0]["patient_id"]
+	if pd.isna(patient_id):
+		return "Unknown"
+	return str(patient_id)
 
 
 def format_average_wait(df_waiting: pd.DataFrame) -> str:
@@ -1579,6 +1967,7 @@ def build_queue_table(df_waiting: pd.DataFrame):
 	)
 
 	ordered_columns = ["Patient ID", "Priority", "Urgency", "Arrival Time"]
+	ordered_columns = ["Patient ID", "Priority", "Urgency", "Arrival Time"]
 	display_df = display_df[[col for col in ordered_columns if col in display_df.columns]]
 
 	return display_df.style.format(
@@ -1595,9 +1984,10 @@ def has_chat_session_id(chat_session_id: object) -> bool:
 	return bool(str(chat_session_id).strip())
 
 
-def fetch_traceability_summary(chat_session_id: str) -> dict[str, object]:
+def fetch_traceability_payload(chat_session_id: str, *, include_messages: bool = False) -> dict[str, object]:
 	encoded_session_id = urllib.parse.quote(chat_session_id, safe="")
-	url = f"{QUEUECONTROL_API_BASE_URL}/traceability/{encoded_session_id}"
+	path = f"/traceability/{encoded_session_id}/detail" if include_messages else f"/traceability/{encoded_session_id}"
+	url = f"{QUEUECONTROL_API_BASE_URL}{path}"
 	request = urllib.request.Request(url, headers={"Accept": "application/json"})
 
 	try:
@@ -1633,7 +2023,43 @@ def render_chat_detail_dialog(
 	if error_message:
 		st.error(error_message)
 	elif payload is not None:
-		st.json(payload, expanded=True)
+		session = payload.get("session") if isinstance(payload, dict) else None
+		session_output = payload.get("session_output") if isinstance(payload, dict) else None
+		messages = payload.get("messages") if isinstance(payload, dict) else None
+
+		if isinstance(session, dict):
+			meta_cols = st.columns(2)
+			meta_cols[0].markdown(f"**Patient ID:** {session.get('patient_id', 'Unknown')}")
+			meta_cols[0].markdown(f"**Clinic ID:** {session.get('clinic_id', 'Unknown')}")
+			meta_cols[1].markdown(f"**Started:** {session.get('started_at', 'Unknown')}")
+			meta_cols[1].markdown(f"**Ended:** {session.get('ended_at') or 'In progress'}")
+
+		if isinstance(session_output, dict):
+			st.markdown("**Visit Summary**")
+			st.markdown(f"**Urgency:** {session_output.get('urgency_band', 'Unknown')}")
+			st.markdown(f"**Category:** {session_output.get('visit_category', 'Unknown')}")
+			st.markdown(f"**Explanation:** {session_output.get('explanation', 'No explanation available.')}")
+			st.caption(
+				f"Wait p50: {session_output.get('wait_p50_minutes', 'N/A')} min | "
+				f"Wait p90: {session_output.get('wait_p90_minutes', 'N/A')} min"
+			)
+
+		st.markdown("**Transcript**")
+		if isinstance(messages, list) and messages:
+			for index, message in enumerate(messages):
+				if not isinstance(message, dict):
+					continue
+				role = str(message.get("role") or "assistant").lower()
+				content = str(message.get("content") or "")
+				created_at = str(message.get("created_at") or "")
+				message_role = role if role in {"user", "assistant"} else "assistant"
+				with st.chat_message(message_role):
+					if content:
+						st.markdown(content)
+					if created_at:
+						st.caption(created_at)
+		else:
+			st.info("No transcript messages are available for this session.")
 	else:
 		st.info("No traceability details are available for this session.")
 
@@ -1661,7 +2087,7 @@ def render_reception_queue_actions(
 
 	for _, patient in df_waiting.iterrows():
 		record_id = int(patient["record_id"])
-		patient_id = int(patient["patient_id"])
+		patient_id = str(patient["patient_id"])
 		current_priority = int(patient["priority"])
 		arrival_time = patient["arrival_time"].strftime("%Y-%m-%d %H:%M:%S")
 		chat_session_id = patient.get("chat_session_id")
@@ -1695,7 +2121,7 @@ def render_reception_queue_actions(
 			cleaned_chat_session_id = str(chat_session_id).strip()
 			if row_cols[6].button("Chat Detail", key=f"chat_detail_{selected_clinic}_{record_id}"):
 				try:
-					traceability_payload = fetch_traceability_summary(cleaned_chat_session_id)
+					traceability_payload = fetch_traceability_payload(cleaned_chat_session_id, include_messages=True)
 				except RuntimeError as exc:
 					render_chat_detail_dialog(
 						cleaned_chat_session_id,
@@ -1832,6 +2258,55 @@ def render_model_summary_blocks(
 		)
 
 
+def render_model_summary_block(
+	model_name: str,
+	items: list[tuple[str, str, str, str]],
+	*,
+	kicker: str = "Model summary",
+	accent: str = "",
+) -> None:
+	accent_class = f" model-summary-{accent}" if accent else ""
+	items_html = "".join(
+		f'''
+		<div class="model-summary-item">
+		  <div class="model-summary-item-label">{escape(label)}</div>
+		  <div class="model-summary-item-value">{escape(str(value))}</div>
+		  <div class="model-summary-item-caption">{escape(caption)}</div>
+		</div>
+		'''
+		for label, value, caption, _ in items
+	)
+	st.markdown(
+		f'''
+		<div class="model-summary-shell{accent_class}">
+		  <div class="model-summary-kicker">{escape(kicker)}</div>
+		  <div class="model-summary-title">{escape(model_name)}</div>
+		  {items_html}
+		</div>
+		''',
+		unsafe_allow_html=True,
+	)
+
+
+def render_model_summary_blocks(
+	rush_hour_metrics: list[tuple[str, str, str, str]],
+	wait_time_metrics: list[tuple[str, str, str, str]],
+) -> None:
+	model_cols = st.columns(2)
+	with model_cols[0]:
+		render_model_summary_block(
+			"Rush-Hour Predictor Model",
+			rush_hour_metrics,
+			accent="water",
+		)
+	with model_cols[1]:
+		render_model_summary_block(
+			"Wait-Time Predictor Model",
+			wait_time_metrics,
+			accent="peach",
+		)
+
+
 def should_render_surge_monitor(backend: QueueSimulationBackend) -> bool:
 	if backend.sim_config["use_rush_hour_predictor"]:
 		return backend.rush_hour_predictor_model is not None
@@ -1892,6 +2367,23 @@ def render_sidebar(
 				if simulation_enabled
 				else "Queue simulation turned off across all dashboards."
 			)
+
+		simulation_status = "Running" if simulation_enabled else "Off"
+		simulation_caption = (
+			"Automatic arrivals and doctor processing are active across every dashboard."
+			if simulation_enabled
+			else "Automatic arrivals and doctor processing are paused across all dashboards. Reception can still add patients manually from this sidebar."
+		)
+		st.markdown(
+			f'''
+			<div class="sidebar-note">
+			  <span>Simulation status</span>
+			  <strong>{escape(simulation_status)}</strong>
+			  <p>{escape(simulation_caption)}</p>
+			</div>
+			''',
+			unsafe_allow_html=True,
+		)
 
 		simulation_status = "Running" if simulation_enabled else "Off"
 		simulation_caption = (
@@ -2065,6 +2557,8 @@ def get_dashboard_data(
 	try:
 		# full_df = backend.prepare_queue_df(backend.api.get_queue_df())
 		full_df = backend.prepare_queue_df(backend.db_manager.fetch_queue())
+		# full_df = backend.prepare_queue_df(backend.api.get_queue_df())
+		full_df = backend.prepare_queue_df(backend.db_manager.fetch_queue())
 	except Exception as exc:
 		st.error(f"Database error: {exc}")
 		full_df = backend.create_empty_queue_df()
@@ -2127,13 +2621,13 @@ def render_dashboard_view(
 			(
 				"Queue at selected clinic",
 				str(len(df_waiting)),
-				"Patients currently waiting in the active clinic view.",
+				"Patients currently waiting to be served.",
 				"",
 			),
 			(
 				"Next up",
 				next_up,
-				"The next patient expected to be served based on current ordering.",
+				"The next patient expected to be served.",
 				"water",
 			),
 			wait_time_metrics[0],
@@ -2184,7 +2678,7 @@ def render_dashboard_view(
 
 			with main_cols[1]:
 				render_section_heading(
-					"Surge monitor",
+					"",
 					"",
 				)
 				if should_render_surge_monitor(backend):
@@ -2193,7 +2687,7 @@ def render_dashboard_view(
 					st.info("Rush-hour outlook is unavailable. Turn the predictor off and set manual rush-hour probability above 0% to display the surge monitor.")
 		else:
 			render_section_heading(
-				"Surge monitor",
+				"",
 				"",
 			)
 			if should_render_surge_monitor(backend):
