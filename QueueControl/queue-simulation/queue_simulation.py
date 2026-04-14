@@ -2557,8 +2557,6 @@ def get_dashboard_data(
 	try:
 		# full_df = backend.prepare_queue_df(backend.api.get_queue_df())
 		full_df = backend.prepare_queue_df(backend.db_manager.fetch_queue())
-		# full_df = backend.prepare_queue_df(backend.api.get_queue_df())
-		full_df = backend.prepare_queue_df(backend.db_manager.fetch_queue())
 	except Exception as exc:
 		st.error(f"Database error: {exc}")
 		full_df = backend.create_empty_queue_df()
