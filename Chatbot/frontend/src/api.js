@@ -6,7 +6,31 @@ function getErrorMessage(payload, fallback) {
   if (payload && typeof payload === 'object' && typeof payload.detail === 'string') {
     return payload.detail;
   }
+  if (payload && typeof payload === 'object' && Array.isArray(payload.detail) && payload.detail.length) {
+    const firstError = payload.detail[0];
+    if (firstError && typeof firstError === 'object' && typeof firstError.msg === 'string') {
+      return firstError.msg;
+    }
+  }
   return fallback;
+}
+
+function normalizeQueuePredictionRecords(queueRecords = []) {
+  return queueRecords.map((record) => {
+    const recordId = Number(record.record_id ?? record.recordId);
+    const priority = Number(record.priority);
+    const estDuration = Number(record.est_duration ?? record.estDuration);
+
+    return {
+      record_id: Number.isFinite(recordId) ? recordId : null,
+      clinic_name: String(record.clinic_name ?? record.clinicName ?? ''),
+      patient_id: String(record.patient_id ?? record.patientId ?? ''),
+      arrival_time: record.arrival_time ?? record.arrivalTime ?? null,
+      priority: Number.isFinite(priority) ? priority : 5,
+      est_duration: Number.isFinite(estDuration) ? estDuration : 5,
+      seen_by_doctor_time: record.seen_by_doctor_time ?? record.seenByDoctorTime ?? null,
+    };
+  });
 }
 
 async function apiFetch(path, options = {}) {
@@ -200,6 +224,69 @@ export async function createQueuePatientRecord(payload) {
       est_duration: payload.estDuration ?? null,
       chat_session_id: payload.chatSessionId ?? null,
     }),
+  });
+}
+
+export async function getQueueControlClinics() {
+  return apiFetch('/queuecontrol/list-registered-clinics', {
+    headers: { ...authHeaders() },
+  });
+}
+
+export async function getActiveQueueRecords() {
+  return apiFetch('/queuecontrol/list-active-queue-records', {
+    headers: { ...authHeaders() },
+  });
+}
+
+export async function updateQueuePatientTriage(recordId, payload) {
+  return apiFetch(`/queuecontrol/queue-patient-records/${encodeURIComponent(String(recordId))}/update-triage`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({
+      priority: payload.priority,
+      est_duration: payload.estDuration ?? null,
+    }),
+  });
+}
+
+export async function deleteQueuePatientRecord(recordId) {
+  return apiFetch(`/queuecontrol/queue-patient-records/${encodeURIComponent(String(recordId))}/remove`, {
+    method: 'DELETE',
+    headers: { ...authHeaders() },
+  });
+}
+
+export async function getPublicTraceabilityDetail(sessionId) {
+  return apiFetch(`/traceability/${encodeURIComponent(String(sessionId))}/detail`, {
+    headers: { ...authHeaders() },
+  });
+}
+
+export async function predictQueueSurge(payload = {}) {
+  return apiFetch('/queuecontrol/predict-rush-hour-predictor-model-surge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({
+      queue_records: normalizeQueuePredictionRecords(payload.queueRecords || []),
+      current_time: payload.currentTime || null,
+    }),
+  });
+}
+
+export async function predictQueueWaitTime(payload) {
+  const body = {
+    clinic_name: payload.clinicName,
+    queue_records: normalizeQueuePredictionRecords(payload.queueRecords || []),
+    current_time: payload.currentTime || null,
+  };
+  if (payload.doctorCount) {
+    body.doctor_count = payload.doctorCount;
+  }
+  return apiFetch('/queuecontrol/predict-wait-time-predictor-model-estimate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(body),
   });
 }
 

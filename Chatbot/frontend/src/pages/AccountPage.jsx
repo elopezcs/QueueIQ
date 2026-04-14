@@ -1,5 +1,15 @@
 import React, { useEffect, useState } from 'react';
 
+import {
+  deleteQueuePatientRecord,
+  getActiveQueueRecords,
+  getPublicTraceabilityDetail,
+  getQueueControlClinics,
+  predictQueueSurge,
+  predictQueueWaitTime,
+  updateQueuePatientTriage,
+} from '../api';
+
 const DASHBOARD_URLS = {
   patient: import.meta.env.VITE_PATIENT_DASHBOARD_URL || 'http://127.0.0.1:8501?view=patient',
   reception: import.meta.env.VITE_RECEPTION_DASHBOARD_URL || 'http://127.0.0.1:8501?view=reception',
@@ -77,6 +87,80 @@ function formatTimeOnly(value) {
     hour: 'numeric',
     minute: '2-digit',
   });
+}
+
+function formatDurationMinutes(value) {
+  const totalMinutes = Number(value);
+  if (!Number.isFinite(totalMinutes)) {
+    return 'Not available';
+  }
+  const safeMinutes = Math.max(0, Math.round(totalMinutes));
+  const hours = Math.floor(safeMinutes / 60);
+  const minutes = safeMinutes % 60;
+  if (hours === 0) {
+    return `${minutes}m`;
+  }
+  if (minutes === 0) {
+    return `${hours}h`;
+  }
+  return `${hours}h ${minutes}m`;
+}
+
+function normalizeQueueExplorerClinic(clinic) {
+  return {
+    id: String(clinic?.clinic_id || clinic?.id || ''),
+    name: String(clinic?.clinic_name || clinic?.name || ''),
+  };
+}
+
+function normalizeQueueExplorerRecord(record) {
+  return {
+    recordId: String(record?.record_id ?? ''),
+    clinicName: String(record?.clinic_name || record?.clinicName || ''),
+    patientId: String(record?.patient_id ?? record?.patientId ?? ''),
+    arrivalTime: record?.arrival_time || record?.arrivalTime || '',
+    priority: Number(record?.priority ?? 0),
+    estDuration: Number(record?.est_duration ?? record?.estDuration ?? 0),
+    chatSessionId: String(record?.chat_session_id || record?.chatSessionId || ''),
+  };
+}
+
+function formatProbabilityLabel(value) {
+  const probability = Number(value);
+  if (!Number.isFinite(probability)) {
+    return 'Not available';
+  }
+  return `${Math.round(Math.max(0, Math.min(1, probability)) * 100)}%`;
+}
+
+function getSurgeRiskLabel(value) {
+  const probability = Number(value);
+  if (!Number.isFinite(probability)) {
+    return 'Unavailable';
+  }
+  if (probability >= 0.7) {
+    return 'High surge risk';
+  }
+  if (probability >= 0.4) {
+    return 'Moderate surge risk';
+  }
+  return 'Low surge risk';
+}
+
+function formatWaitElapsed(value) {
+  if (!value) {
+    return 'Not available';
+  }
+  const parsed = new Date(value).getTime();
+  if (!Number.isFinite(parsed)) {
+    return 'Not available';
+  }
+  const elapsedMinutes = Math.max(0, Math.round((Date.now() - parsed) / 60000));
+  return formatDurationMinutes(elapsedMinutes);
+}
+
+function defaultDurationForPriority(priority) {
+  return { 1: 60, 2: 40, 3: 20, 4: 10, 5: 5 }[Number(priority)] || 5;
 }
 
 function formatClinicFallback(value) {
@@ -830,6 +914,542 @@ function AddMemberModal({ clinics, isOpen, onClose, onCreateStaff, staffCreation
   );
 }
 
+function QueueRetriageModal({ record, isSaving, error, onClose, onSave }) {
+  const [priority, setPriority] = useState(String(record?.priority || 3));
+  const [estDuration, setEstDuration] = useState(String(record?.estDuration || defaultDurationForPriority(record?.priority || 3)));
+
+  useEffect(() => {
+    setPriority(String(record?.priority || 3));
+    setEstDuration(String(record?.estDuration || defaultDurationForPriority(record?.priority || 3)));
+  }, [record]);
+
+  if (!record) {
+    return null;
+  }
+
+  function handlePriorityChange(nextValue) {
+    setPriority(nextValue);
+    setEstDuration(String(defaultDurationForPriority(nextValue)));
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    await onSave({
+      priority: Number(priority),
+      estDuration: Number(estDuration),
+    });
+  }
+
+  return (
+    <div className="overlay-backdrop" onClick={onClose}>
+      <div className="overlay-card queue-action-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="panel-heading-row">
+          <div>
+            <h2 className="section-title">Retriage Queue Record</h2>
+            <p className="section-subtitle">Adjust priority and estimated duration for patient {record.patientId}.</p>
+          </div>
+          <button type="button" className="btn secondary" onClick={onClose}>Close</button>
+        </div>
+        <form className="queue-action-form" onSubmit={handleSubmit}>
+          <div className="field">
+            <label htmlFor="queue-retriage-priority">Priority</label>
+            <select id="queue-retriage-priority" value={priority} onChange={(event) => handlePriorityChange(event.target.value)}>
+              <option value="1">P1</option>
+              <option value="2">P2</option>
+              <option value="3">P3</option>
+              <option value="4">P4</option>
+              <option value="5">P5</option>
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="queue-retriage-duration">Estimated duration (minutes)</label>
+            <input id="queue-retriage-duration" type="number" min="1" step="1" value={estDuration} onChange={(event) => setEstDuration(event.target.value)} />
+          </div>
+          {error ? <div className="inline-notice error">{error}</div> : null}
+          <div className="queue-action-row">
+            <button type="submit" className="btn" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save Retriage'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function QueueChatDetailModal({ detailState, onClose }) {
+  if (!detailState.isOpen) {
+    return null;
+  }
+
+  return (
+    <div className="overlay-backdrop" onClick={onClose}>
+      <div className="overlay-card queue-chat-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="panel-heading-row">
+          <div>
+            <h2 className="section-title">Chat Details</h2>
+            <p className="section-subtitle">Session drill-down for the selected queue record.</p>
+          </div>
+          <button type="button" className="btn secondary" onClick={onClose}>Close</button>
+        </div>
+        {detailState.loading ? <p className="muted">Loading chat detail...</p> : null}
+        {detailState.error ? <div className="inline-notice error">{detailState.error}</div> : null}
+        {detailState.data ? (
+          <div className="queue-chat-detail-layout">
+            <div className="queue-chat-meta-grid">
+              <div><span className="meta-label">Session</span><span>{detailState.data.session?.session_id || 'Not available'}</span></div>
+              <div><span className="meta-label">Patient</span><span>{detailState.data.session?.patient_id || 'Not available'}</span></div>
+              <div><span className="meta-label">Clinic</span><span>{detailState.data.session?.clinic_id || 'Not available'}</span></div>
+              <div><span className="meta-label">Started</span><span>{formatDateTime(detailState.data.session?.started_at)}</span></div>
+              <div><span className="meta-label">Ended</span><span>{formatDateTime(detailState.data.session?.ended_at)}</span></div>
+              <div><span className="meta-label">Urgency</span><span>{detailState.data.session_output?.urgency_band || 'Not available'}</span></div>
+            </div>
+            {detailState.data.session_output ? (
+              <div className="queue-chat-summary-card">
+                <div className="eyebrow-label">Visit Summary</div>
+                <h3>{detailState.data.session_output.visit_category}</h3>
+                <p>{detailState.data.session_output.explanation}</p>
+                <div className="muted small">Estimated wait: {formatDurationMinutes(detailState.data.session_output.wait_p50_minutes)} to {formatDurationMinutes(detailState.data.session_output.wait_p90_minutes)}</div>
+              </div>
+            ) : null}
+            <div className="queue-chat-transcript">
+              <div className="eyebrow-label">Transcript</div>
+              {(detailState.data.messages || []).length ? (
+                detailState.data.messages.map((message, index) => (
+                  <article key={`${message.created_at}-${index}`} className={`queue-chat-message ${message.role === 'assistant' ? 'assistant' : 'user'}`}>
+                    <div className="queue-chat-message-topline">
+                      <strong>{message.role === 'assistant' ? 'Assistant' : 'User'}</strong>
+                      <span>{formatDateTime(message.created_at)}</span>
+                    </div>
+                    <p>{message.content}</p>
+                  </article>
+                ))
+              ) : (
+                <div className="queue-explorer-empty-state">No transcript messages available for this session.</div>
+              )}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function QueueDeleteModal({ record, isDeleting, error, onClose, onConfirm }) {
+  if (!record) {
+    return null;
+  }
+
+  return (
+    <div className="overlay-backdrop" onClick={onClose}>
+      <div className="overlay-card queue-action-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="panel-heading-row">
+          <div>
+            <h2 className="section-title">Delete Queue Record</h2>
+            <p className="section-subtitle">Remove patient {record.patientId} from the live queue for {record.clinicName}.</p>
+          </div>
+          <button type="button" className="btn secondary" onClick={onClose} disabled={isDeleting}>Close</button>
+        </div>
+        <div className="queue-action-form">
+          <div className="inline-notice error">
+            This removes the queue entry immediately. Use this only when the patient should no longer appear in the active queue.
+          </div>
+          {error ? <div className="inline-notice error">{error}</div> : null}
+          <div className="queue-action-row queue-action-row-split">
+            <button type="button" className="btn secondary" onClick={onClose} disabled={isDeleting}>Cancel</button>
+            <button type="button" className="btn danger" onClick={onConfirm} disabled={isDeleting}>{isDeleting ? 'Deleting...' : 'Delete Record'}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ClinicQueueExplorer({ currentUser }) {
+  const [availableClinics, setAvailableClinics] = useState([]);
+  const [selectedClinicId, setSelectedClinicId] = useState('');
+  const [clinicsLoading, setClinicsLoading] = useState(false);
+  const [clinicLoadError, setClinicLoadError] = useState('');
+  const [explorerData, setExplorerData] = useState({
+    loading: false,
+    error: '',
+    records: [],
+    rushPrediction: null,
+    waitPrediction: null,
+    refreshedAt: '',
+  });
+  const [retriageState, setRetriageState] = useState({ record: null, isSaving: false, error: '' });
+  const [chatDetailState, setChatDetailState] = useState({ isOpen: false, loading: false, error: '', data: null, sessionId: '' });
+  const [deleteState, setDeleteState] = useState({ record: null, isDeleting: false, error: '' });
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function loadClinics() {
+      setClinicsLoading(true);
+      setClinicLoadError('');
+      try {
+        const payload = await getQueueControlClinics();
+        if (isCancelled) {
+          return;
+        }
+        const nextClinics = (payload?.clinics || [])
+          .map(normalizeQueueExplorerClinic)
+          .filter((clinic) => clinic.id && clinic.name);
+        setAvailableClinics(nextClinics);
+        setSelectedClinicId((current) => {
+          if (current && nextClinics.some((clinic) => clinic.id === current)) {
+            return current;
+          }
+          const preferredClinic = nextClinics.find((clinic) => clinic.id === currentUser?.clinic_id);
+          return preferredClinic?.id || nextClinics[0]?.id || '';
+        });
+      } catch (error) {
+        if (!isCancelled) {
+          setClinicLoadError(error.message || 'Unable to load clinics.');
+        }
+      } finally {
+        if (!isCancelled) {
+          setClinicsLoading(false);
+        }
+      }
+    }
+
+    loadClinics();
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentUser?.clinic_id]);
+
+  const selectedClinic = availableClinics.find((clinic) => clinic.id === selectedClinicId) || null;
+
+  useEffect(() => {
+    if (!selectedClinic) {
+      return undefined;
+    }
+
+    let isCancelled = false;
+    let timeoutId = 0;
+
+    async function refreshExplorer(isInitialLoad = false) {
+      if (isCancelled) {
+        return;
+      }
+
+      setExplorerData((current) => ({
+        ...current,
+        loading: isInitialLoad || !current.refreshedAt,
+        error: '',
+      }));
+
+      try {
+        const queuePayload = await getActiveQueueRecords();
+        if (isCancelled) {
+          return;
+        }
+        const queueRecords = (queuePayload?.records || []).map(normalizeQueueExplorerRecord);
+        const clinicRecords = queueRecords.filter((record) => record.clinicName === selectedClinic.name);
+        const currentTime = new Date().toISOString();
+        const [rushPrediction, waitPrediction] = await Promise.all([
+          predictQueueSurge({
+            queueRecords: clinicRecords,
+            currentTime,
+          }),
+          predictQueueWaitTime({
+            clinicName: selectedClinic.name,
+            queueRecords: clinicRecords,
+            currentTime,
+          }),
+        ]);
+
+        if (isCancelled) {
+          return;
+        }
+
+        setExplorerData({
+          loading: false,
+          error: '',
+          records: clinicRecords,
+          rushPrediction,
+          waitPrediction,
+          refreshedAt: new Date().toISOString(),
+        });
+      } catch (error) {
+        if (!isCancelled) {
+          setExplorerData((current) => ({
+            ...current,
+            loading: false,
+            error: error.message || 'Unable to refresh queue explorer data.',
+          }));
+        }
+      } finally {
+        if (!isCancelled) {
+          timeoutId = window.setTimeout(() => {
+            refreshExplorer(false);
+          }, 2000);
+        }
+      }
+    }
+
+    refreshExplorer(true);
+    return () => {
+      isCancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [selectedClinic]);
+
+  const rushProbability = Number(explorerData.rushPrediction?.probability ?? NaN);
+  const queueSize = explorerData.records.length;
+  const nextUpPatientId = explorerData.records[0]?.patientId || 'None';
+  const urgentCaseCount = explorerData.records.filter((record) => record.priority === 1 || record.priority === 2).length;
+  const gaugeAngle = Number.isFinite(rushProbability) ? `${Math.max(0, Math.min(1, rushProbability)) * 360}deg` : '0deg';
+
+  async function refreshQueueExplorer() {
+    if (!selectedClinic) {
+      return;
+    }
+    const queuePayload = await getActiveQueueRecords();
+    const queueRecords = (queuePayload?.records || []).map(normalizeQueueExplorerRecord);
+    const clinicRecords = queueRecords.filter((record) => record.clinicName === selectedClinic.name);
+    const currentTime = new Date().toISOString();
+    const [rushPrediction, waitPrediction] = await Promise.all([
+      predictQueueSurge({ queueRecords: clinicRecords, currentTime }),
+      predictQueueWaitTime({ clinicName: selectedClinic.name, queueRecords: clinicRecords, currentTime }),
+    ]);
+    setExplorerData({
+      loading: false,
+      error: '',
+      records: clinicRecords,
+      rushPrediction,
+      waitPrediction,
+      refreshedAt: new Date().toISOString(),
+    });
+  }
+
+  function openRetriage(record) {
+    setRetriageState({ record, isSaving: false, error: '' });
+  }
+
+  function closeRetriage() {
+    setRetriageState({ record: null, isSaving: false, error: '' });
+  }
+
+  async function saveRetriage(payload) {
+    if (!retriageState.record) {
+      return;
+    }
+    setRetriageState((current) => ({ ...current, isSaving: true, error: '' }));
+    try {
+      await updateQueuePatientTriage(retriageState.record.recordId, payload);
+      closeRetriage();
+      await refreshQueueExplorer();
+    } catch (error) {
+      setRetriageState((current) => ({ ...current, isSaving: false, error: error.message || 'Unable to update triage.' }));
+    }
+  }
+
+  async function openChatDetail(record) {
+    setChatDetailState({ isOpen: true, loading: true, error: '', data: null, sessionId: record.chatSessionId || '' });
+    try {
+      const data = await getPublicTraceabilityDetail(record.chatSessionId);
+      setChatDetailState({ isOpen: true, loading: false, error: '', data, sessionId: record.chatSessionId || '' });
+    } catch (error) {
+      setChatDetailState({ isOpen: true, loading: false, error: error.message || 'Unable to load chat details.', data: null, sessionId: record.chatSessionId || '' });
+    }
+  }
+
+  function closeChatDetail() {
+    setChatDetailState({ isOpen: false, loading: false, error: '', data: null, sessionId: '' });
+  }
+
+  function openDelete(record) {
+    setDeleteState({ record, isDeleting: false, error: '' });
+  }
+
+  function closeDelete() {
+    setDeleteState({ record: null, isDeleting: false, error: '' });
+  }
+
+  async function confirmDelete() {
+    if (!deleteState.record) {
+      return;
+    }
+    setDeleteState((current) => ({ ...current, isDeleting: true, error: '' }));
+    try {
+      await deleteQueuePatientRecord(deleteState.record.recordId);
+      closeDelete();
+      await refreshQueueExplorer();
+    } catch (error) {
+      setDeleteState((current) => ({ ...current, isDeleting: false, error: error.message || 'Unable to delete queue record.' }));
+    }
+  }
+
+  return (
+    <section className="panel account-panel queue-explorer-panel">
+      <div className="panel-heading-row">
+        <div>
+          <h2 className="section-title">Clinic Queue Explorer</h2>
+          <p className="section-subtitle">Live queue volume, estimated waits, and rush-hour probability for the selected clinic.</p>
+        </div>
+      </div>
+
+      <div className="queue-explorer-toolbar">
+        <div className="field queue-explorer-picker">
+          <label htmlFor="queue-explorer-clinic">Selected clinic</label>
+          <select
+            id="queue-explorer-clinic"
+            value={selectedClinicId}
+            onChange={(event) => setSelectedClinicId(event.target.value)}
+            disabled={clinicsLoading || !availableClinics.length}
+          >
+            {availableClinics.map((clinic) => (
+              <option key={clinic.id} value={clinic.id}>
+                {clinic.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="queue-explorer-status">
+          <span className="queue-explorer-refresh-pill">Auto refresh every 2 seconds</span>
+          <span className="muted small">{explorerData.refreshedAt ? `Last updated ${formatTimeOnly(explorerData.refreshedAt)}` : 'Waiting for first refresh...'}</span>
+        </div>
+      </div>
+
+      {clinicLoadError ? <div className="inline-notice error">{clinicLoadError}</div> : null}
+      {explorerData.error ? <div className="inline-notice error">{explorerData.error}</div> : null}
+      {clinicsLoading && !availableClinics.length ? <p className="muted">Loading clinic explorer...</p> : null}
+
+      {selectedClinic ? (
+        <div className="queue-explorer-grid">
+          <div className="queue-explorer-main">
+            <div className="queue-explorer-kpis">
+              <article className="queue-explorer-kpi queue-explorer-kpi-primary">
+                <div className="queue-explorer-kpi-label">Queue at selected clinic</div>
+                <div className="queue-explorer-kpi-value">{queueSize}</div>
+                <div className="queue-explorer-kpi-note">Patients currently waiting to be served.</div>
+              </article>
+              <article className="queue-explorer-kpi queue-explorer-kpi-next">
+                <div className="queue-explorer-kpi-label">Next up</div>
+                <div className="queue-explorer-kpi-value queue-explorer-kpi-value-compact">{nextUpPatientId}</div>
+                <div className="queue-explorer-kpi-note">The next patient expected to be served.</div>
+              </article>
+              <article className="queue-explorer-kpi queue-explorer-kpi-water">
+                <div className="queue-explorer-kpi-label">Average estimated wait time</div>
+                <div className="queue-explorer-kpi-value">{formatDurationMinutes(explorerData.waitPrediction?.p50_minutes)}</div>
+                <div className="queue-explorer-kpi-note">Average expected wait time for a new arrival.</div>
+              </article>
+              <article className="queue-explorer-kpi queue-explorer-kpi-peach">
+                <div className="queue-explorer-kpi-label">Maximum estimated wait time</div>
+                <div className="queue-explorer-kpi-value">{formatDurationMinutes(explorerData.waitPrediction?.p90_minutes)}</div>
+                <div className="queue-explorer-kpi-note">Higher-end wait estimate for a new arrival.</div>
+              </article>
+              <article className="queue-explorer-kpi queue-explorer-kpi-urgent">
+                <div className="queue-explorer-kpi-label">Urgent cases</div>
+                <div className="queue-explorer-kpi-value">{urgentCaseCount}</div>
+                <div className="queue-explorer-kpi-note">Patients at priority P1 or P2 currently in the selected clinic.</div>
+              </article>
+            </div>
+
+            <div className="auth-card queue-explorer-table-card">
+              <div className="queue-explorer-table-header">
+                <div>
+                  <div className="eyebrow-label">Current queue</div>
+                  <h3>{selectedClinic.name}</h3>
+                </div>
+                <div className="muted small">{queueSize} patient{queueSize === 1 ? '' : 's'} waiting</div>
+              </div>
+              <div className="queue-explorer-table-hint">
+                Use the action buttons at the right side of each row to retriage, remove, or open chat details.
+              </div>
+
+              {explorerData.loading && !explorerData.records.length ? <p className="muted">Refreshing queue data...</p> : null}
+
+              {explorerData.records.length ? (
+                <div className="table-responsive queue-explorer-table-wrap">
+                  <table className="results-table queue-explorer-table">
+                    <thead>
+                      <tr>
+                        <th>Position</th>
+                        <th>Patient ID</th>
+                        <th>Priority</th>
+                        <th>Arrival</th>
+                        <th>Estimated duration</th>
+                        <th>Waiting so far</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {explorerData.records.map((record, index) => (
+                        <tr key={record.recordId || `${record.patientId}-${record.arrivalTime}`}>
+                          <td>{index + 1}</td>
+                          <td>{record.patientId}</td>
+                          <td>
+                            <span className={`queue-priority-pill p${record.priority || 5}`}>P{record.priority || 5}</span>
+                          </td>
+                          <td>{formatDateTime(record.arrivalTime)}</td>
+                          <td>{formatDurationMinutes(record.estDuration)}</td>
+                          <td>{formatWaitElapsed(record.arrivalTime)}</td>
+                          <td>
+                            <div className="queue-table-actions">
+                              <button type="button" className="btn secondary queue-table-action" onClick={() => openRetriage(record)}>
+                                Retriage
+                              </button>
+                              <button type="button" className="btn danger queue-table-action" onClick={() => openDelete(record)}>
+                                Delete
+                              </button>
+                              {record.chatSessionId ? (
+                                <button type="button" className="btn secondary queue-table-action" onClick={() => openChatDetail(record)}>
+                                  Chat Detail
+                                </button>
+                              ) : (
+                                <span className="muted small">No chat</span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="queue-explorer-empty-state">No patients are currently waiting in this clinic queue.</div>
+              )}
+            </div>
+          </div>
+
+          <aside className="auth-card queue-explorer-gauge-card">
+            <div className="eyebrow-label">Rush-hour probability based on the live waiting queue and historical clinic data.</div>
+            <h3>{selectedClinic.name}</h3>
+            <div className="queue-explorer-gauge" style={{ '--queue-explorer-gauge-angle': gaugeAngle }}>
+              <div className="queue-explorer-gauge-content">
+                <span className="queue-explorer-gauge-value">{formatProbabilityLabel(rushProbability)}</span>
+                <span className="queue-explorer-gauge-caption">{getSurgeRiskLabel(rushProbability)}</span>
+              </div>
+            </div>
+            {/* <div className="queue-explorer-gauge-note">{getSurgeRiskLabel(rushProbability)}</div> */}
+            {/* <div className="queue-explorer-gauge-meta">Based on the live waiting queue and historical clinic data.</div> */}
+          </aside>
+        </div>
+      ) : null}
+
+      <QueueRetriageModal
+        record={retriageState.record}
+        isSaving={retriageState.isSaving}
+        error={retriageState.error}
+        onClose={closeRetriage}
+        onSave={saveRetriage}
+      />
+      <QueueDeleteModal
+        record={deleteState.record}
+        isDeleting={deleteState.isDeleting}
+        error={deleteState.error}
+        onClose={closeDelete}
+        onConfirm={confirmDelete}
+      />
+      <QueueChatDetailModal detailState={chatDetailState} onClose={closeChatDetail} />
+    </section>
+  );
+}
+
 export default function AccountPage({
   currentUser,
   activeSection,
@@ -1110,6 +1730,7 @@ export default function AccountPage({
                   </div>
                 ) : null}
               </section>
+
             </>
           ) : null}
 
@@ -1220,6 +1841,10 @@ export default function AccountPage({
                 {staffError ? <div className="inline-notice error">{staffError}</div> : null}
                 {staffLoading ? <p className="muted">Loading appointment search...</p> : <StaffResultsTable clinics={clinics} staffAppointments={staffAppointments} />}
               </div>
+
+              <div className="queue-explorer-results-slot">
+                <ClinicQueueExplorer currentUser={currentUser} />
+              </div>
             </section>
           ) : null}
 
@@ -1256,6 +1881,10 @@ export default function AccountPage({
                     Dashboard
                   </button>
                 </div>
+              </div>
+
+              <div className="queue-explorer-results-slot">
+                <ClinicQueueExplorer currentUser={currentUser} />
               </div>
             </section>
           ) : null}

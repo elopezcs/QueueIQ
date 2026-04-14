@@ -123,6 +123,16 @@ def queue_records_to_df(queue_records: list[dict[str, Any]]) -> pd.DataFrame:
     return df
 
 
+def _normalize_prediction_time(current_time: datetime | None) -> pd.Timestamp:
+    if current_time is None:
+        return pd.Timestamp(datetime.now())
+
+    timestamp = pd.Timestamp(current_time)
+    if timestamp.tzinfo is not None:
+        return timestamp.tz_localize(None)
+    return timestamp
+
+
 def get_duration(priority: int) -> int:
     return {1: 60, 2: 40, 3: 20, 4: 10, 5: 5}[int(priority)]
 
@@ -320,7 +330,7 @@ def predict_surge(
         raise FileNotFoundError("Rush-hour model artifact is missing. Train the model before requesting predictions.")
 
     queue_df = queue_records_to_df(queue_records or get_waiting_queue())
-    now = current_time or datetime.now()
+    now = _normalize_prediction_time(current_time)
     recent_patients = queue_df[queue_df["arrival_time"] >= (now - pd.Timedelta(hours=1))] if not queue_df.empty else queue_df
     avg_wait_last_hour = 0.0
     if not recent_patients.empty:
@@ -372,7 +382,7 @@ def predict_wait_time(
         full_queue = queue_records_to_df(get_waiting_queue())
         clinic_df = full_queue[full_queue["clinic_name"] == clinic_name].copy()
 
-    now = current_time or datetime.now()
+    now = _normalize_prediction_time(current_time)
     recent_df = clinic_df[clinic_df["arrival_time"] >= (now - pd.Timedelta(hours=1))] if not clinic_df.empty else clinic_df
 
     avg_wait_last_hour = 0.0
