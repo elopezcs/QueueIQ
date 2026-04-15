@@ -46,7 +46,7 @@ def get_clinic_by_id(clinic_id: str) -> dict[str, Any] | None:
                 rows = fetch_all(
                     """
                     SELECT clinic_id, clinic_name, city
-                    FROM rag.clinics
+                    FROM public.clinics
                     WHERE clinic_id = %s
                     LIMIT 1
                     """,
@@ -62,7 +62,7 @@ def get_clinic_by_id(clinic_id: str) -> dict[str, Any] | None:
                         "mock_capacity": {"servers_total": 3, "avg_service_minutes": 12},
                     }
         except Exception:
-            logger.exception("Failed to load clinic_id=%s from rag.clinics; using YAML fallback", clinic_id)
+            logger.exception("Failed to load clinic_id=%s from public.clinics; using YAML fallback", clinic_id)
 
     cfg = load_clinics_config()
     for clinic in cfg.get('clinics', []):

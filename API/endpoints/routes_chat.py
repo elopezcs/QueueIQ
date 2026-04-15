@@ -99,7 +99,7 @@ def _resolve_clinic(clinic_id: str) -> dict[str, Any] | None:
     rows = fetch_all(
         """
         SELECT clinic_id, clinic_name, city
-        FROM rag.clinics
+        FROM public.clinics
         WHERE clinic_id = %s
         LIMIT 1
         """,
