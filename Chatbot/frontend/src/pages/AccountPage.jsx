@@ -1064,6 +1064,8 @@ function QueueDeleteModal({ record, isDeleting, error, onClose, onConfirm }) {
 }
 
 function ClinicQueueExplorer({ currentUser }) {
+  const role = String(currentUser?.role || '').toLowerCase();
+  const canManageQueue = role === 'staff' || role === 'manager';
   const [availableClinics, setAvailableClinics] = useState([]);
   const [selectedClinicId, setSelectedClinicId] = useState('');
   const [clinicsLoading, setClinicsLoading] = useState(false);
@@ -1225,6 +1227,9 @@ function ClinicQueueExplorer({ currentUser }) {
   }
 
   function openRetriage(record) {
+    if (!canManageQueue) {
+      return;
+    }
     setRetriageState({ record, isSaving: false, error: '' });
   }
 
@@ -1233,7 +1238,7 @@ function ClinicQueueExplorer({ currentUser }) {
   }
 
   async function saveRetriage(payload) {
-    if (!retriageState.record) {
+    if (!canManageQueue || !retriageState.record) {
       return;
     }
     setRetriageState((current) => ({ ...current, isSaving: true, error: '' }));
@@ -1247,6 +1252,9 @@ function ClinicQueueExplorer({ currentUser }) {
   }
 
   async function openChatDetail(record) {
+    if (!canManageQueue) {
+      return;
+    }
     setChatDetailState({ isOpen: true, loading: true, error: '', data: null, sessionId: record.chatSessionId || '' });
     try {
       const data = await getPublicTraceabilityDetail(record.chatSessionId);
@@ -1261,6 +1269,9 @@ function ClinicQueueExplorer({ currentUser }) {
   }
 
   function openDelete(record) {
+    if (!canManageQueue) {
+      return;
+    }
     setDeleteState({ record, isDeleting: false, error: '' });
   }
 
@@ -1269,7 +1280,7 @@ function ClinicQueueExplorer({ currentUser }) {
   }
 
   async function confirmDelete() {
-    if (!deleteState.record) {
+    if (!canManageQueue || !deleteState.record) {
       return;
     }
     setDeleteState((current) => ({ ...current, isDeleting: true, error: '' }));
@@ -1357,9 +1368,11 @@ function ClinicQueueExplorer({ currentUser }) {
                 </div>
                 <div className="muted small">{queueSize} patient{queueSize === 1 ? '' : 's'} waiting</div>
               </div>
-              <div className="queue-explorer-table-hint">
-                Use the action buttons at the right side of each row to retriage, remove, or open chat details.
-              </div>
+              {canManageQueue ? (
+                <div className="queue-explorer-table-hint">
+                  Use the action buttons at the right side of each row to retriage, remove, or open chat details.
+                </div>
+              ) : null}
 
               {explorerData.loading && !explorerData.records.length ? <p className="muted">Refreshing queue data...</p> : null}
 
@@ -1374,7 +1387,7 @@ function ClinicQueueExplorer({ currentUser }) {
                         <th>Arrival</th>
                         <th>Estimated duration</th>
                         <th>Waiting so far</th>
-                        <th>Actions</th>
+                        {canManageQueue ? <th>Actions</th> : null}
                       </tr>
                     </thead>
                     <tbody>
@@ -1388,23 +1401,25 @@ function ClinicQueueExplorer({ currentUser }) {
                           <td>{formatDateTime(record.arrivalTime)}</td>
                           <td>{formatDurationMinutes(record.estDuration)}</td>
                           <td>{formatWaitElapsed(record.arrivalTime)}</td>
-                          <td>
-                            <div className="queue-table-actions">
-                              <button type="button" className="btn secondary queue-table-action" onClick={() => openRetriage(record)}>
-                                Retriage
-                              </button>
-                              <button type="button" className="btn danger queue-table-action" onClick={() => openDelete(record)}>
-                                Delete
-                              </button>
-                              {record.chatSessionId ? (
-                                <button type="button" className="btn secondary queue-table-action" onClick={() => openChatDetail(record)}>
-                                  Chat Detail
+                          {canManageQueue ? (
+                            <td>
+                              <div className="queue-table-actions">
+                                <button type="button" className="btn secondary queue-table-action" onClick={() => openRetriage(record)}>
+                                  Retriage
                                 </button>
-                              ) : (
-                                <span className="muted small">No chat</span>
-                              )}
-                            </div>
-                          </td>
+                                <button type="button" className="btn danger queue-table-action" onClick={() => openDelete(record)}>
+                                  Delete
+                                </button>
+                                {record.chatSessionId ? (
+                                  <button type="button" className="btn secondary queue-table-action" onClick={() => openChatDetail(record)}>
+                                    Chat Detail
+                                  </button>
+                                ) : (
+                                  <span className="muted small">No chat</span>
+                                )}
+                              </div>
+                            </td>
+                          ) : null}
                         </tr>
                       ))}
                     </tbody>
@@ -1431,21 +1446,25 @@ function ClinicQueueExplorer({ currentUser }) {
         </div>
       ) : null}
 
-      <QueueRetriageModal
-        record={retriageState.record}
-        isSaving={retriageState.isSaving}
-        error={retriageState.error}
-        onClose={closeRetriage}
-        onSave={saveRetriage}
-      />
-      <QueueDeleteModal
-        record={deleteState.record}
-        isDeleting={deleteState.isDeleting}
-        error={deleteState.error}
-        onClose={closeDelete}
-        onConfirm={confirmDelete}
-      />
-      <QueueChatDetailModal detailState={chatDetailState} onClose={closeChatDetail} />
+      {canManageQueue ? (
+        <>
+          <QueueRetriageModal
+            record={retriageState.record}
+            isSaving={retriageState.isSaving}
+            error={retriageState.error}
+            onClose={closeRetriage}
+            onSave={saveRetriage}
+          />
+          <QueueDeleteModal
+            record={deleteState.record}
+            isDeleting={deleteState.isDeleting}
+            error={deleteState.error}
+            onClose={closeDelete}
+            onConfirm={confirmDelete}
+          />
+          <QueueChatDetailModal detailState={chatDetailState} onClose={closeChatDetail} />
+        </>
+      ) : null}
     </section>
   );
 }
@@ -1729,6 +1748,18 @@ export default function AccountPage({
                     <AppointmentList clinics={clinics} appointments={appointments.past || []} emptyMessage="No appointment history yet." />
                   </div>
                 ) : null}
+              </section>
+
+              <section className="panel account-panel">
+                <div className="panel-heading-row">
+                  <div>
+                    <h2 className="section-title">Live Queue Outlook</h2>
+                    <p className="section-subtitle">Monitor current queue volume, estimated waits, and rush-hour risk by clinic.</p>
+                  </div>
+                </div>
+                <div className="queue-explorer-results-slot">
+                  <ClinicQueueExplorer currentUser={currentUser} />
+                </div>
               </section>
 
             </>
