@@ -14,7 +14,7 @@ def _clinics_from_db() -> list[ClinicOut]:
     rows = fetch_all(
         """
         SELECT clinic_id, clinic_name, city
-        FROM rag.clinics
+        FROM public.clinics
         ORDER BY clinic_name ASC
         """
     )
@@ -32,7 +32,7 @@ def _clinic_exists_in_db(clinic_id: str) -> bool:
     rows = fetch_all(
         """
         SELECT clinic_id
-        FROM rag.clinics
+        FROM public.clinics
         WHERE clinic_id = %s
         LIMIT 1
         """,
@@ -49,7 +49,7 @@ def list_clinics():
             if clinics:
                 return clinics
         except Exception:
-            logger.exception("Failed to load clinics from rag.clinics; falling back to YAML config")
+            logger.exception("Failed to load clinics from public.clinics; falling back to YAML config")
 
     cfg = load_clinics_config()
     return [ClinicOut(id=c["id"], name=c["name"], address_or_city=c["address_or_city"]) for c in cfg["clinics"]]
@@ -62,7 +62,7 @@ def clinic_status(clinic_id: str):
         try:
             clinic_exists = _clinic_exists_in_db(clinic_id)
         except Exception:
-            logger.exception("Failed clinic existence lookup in rag.clinics; falling back to YAML config")
+            logger.exception("Failed clinic existence lookup in public.clinics; falling back to YAML config")
 
     if not clinic_exists:
         clinic_exists = bool(get_clinic_by_id(clinic_id))

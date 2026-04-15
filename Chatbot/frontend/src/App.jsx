@@ -110,6 +110,22 @@ function mapUrgencyBandToPriority(urgencyBand) {
   }
   return 3;
 }
+function generateRandomFourDigitPatientId() {
+  const value = Math.floor(Math.random() * 9000) + 1000;
+  return String(value);
+}
+function formatUtcTimestampForQueue(date = new Date()) {
+  const pad2 = (value) => String(value).padStart(2, '0');
+  const year = date.getUTCFullYear();
+  const month = pad2(date.getUTCMonth() + 1);
+  const day = pad2(date.getUTCDate());
+  const hours = pad2(date.getUTCHours());
+  const minutes = pad2(date.getUTCMinutes());
+  const seconds = pad2(date.getUTCSeconds());
+  const milliseconds = String(date.getUTCMilliseconds()).padStart(3, '0');
+  const microseconds = `${milliseconds}000`;
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${microseconds}`;
+}
 export default function App() {
   const [currentPage, setCurrentPage] = useState('home');
   const [accountSection, setAccountSection] = useState('auth');
@@ -264,8 +280,8 @@ export default function App() {
 
       await createQueuePatientRecord({
         clinicName: queueClinicName,
-        patientId: currentUser.patient_id,
-        arrivalTime: new Date().toISOString(),
+        patientId: generateRandomFourDigitPatientId(),
+        arrivalTime: formatUtcTimestampForQueue(),
         priority: queuePriority,
         chatSessionId: assessment.sessionId || null,
       });
